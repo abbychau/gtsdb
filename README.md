@@ -58,6 +58,7 @@ Explanation:
 - [x] Tests
 - [ ] HTTP Server (REST API)
 - [ ] More Downsampling options(like sum, min, max, etc.)
+- [ ] Do errcheck Handling
 
 ## License
 

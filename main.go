@@ -27,7 +27,11 @@ const dataDir = "data"
 func main() {
 	//if dataDir does not exist, create it
 	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-		os.Mkdir(dataDir, 0755)
+		err := os.Mkdir(dataDir, 0755)
+		if err != nil {
+			fmt.Println("Error creating data directory:", err)
+			os.Exit(1)
+		}
 	}
 	listener, err := net.Listen("tcp", ":5555")
 	if err != nil {
