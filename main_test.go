@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	models "gtsdb/models"
 )
 
 func TestMain(t *testing.T) {
@@ -79,7 +81,7 @@ func TestMainRead(t *testing.T) {
 }
 
 func TestDownsampleDataPoints(t *testing.T) {
-	dataPoints := []DataPoint{
+	dataPoints := []models.DataPoint{
 		{Timestamp: 1, Value: 1},
 		{Timestamp: 2, Value: 2},
 		{Timestamp: 3, Value: 3},
@@ -108,7 +110,7 @@ func TestDownsampleDataPoints(t *testing.T) {
 
 // formatDataPoints
 func TestFormatDataPoints(t *testing.T) {
-	dataPoints := []DataPoint{
+	dataPoints := []models.DataPoint{
 		{ID: "test", Timestamp: 1, Value: 1},
 		{ID: "test", Timestamp: 2, Value: 2},
 		{ID: "test", Timestamp: 3, Value: 3},
