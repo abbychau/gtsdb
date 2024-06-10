@@ -4,27 +4,26 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	fanout "gtsdb/fanout"
+	models "gtsdb/models"
 )
-
-type DataPoint struct {
-	ID        string
-	Timestamp int64
-	Value     float64
-}
-
-type IndexEntry struct {
-	Timestamp int64
-	Offset    int64
-}
 
 const indexInterval = 5000
 const dataDir = "data"
 
+var fanoutManager = fanout.NewFanout()
+
 func main() {
+	fanoutManager.Start() //this will start 2 go routines in the background
+
 	//if dataDir does not exist, create it
 	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
 		err := os.Mkdir(dataDir, 0755)
@@ -55,19 +54,47 @@ func main() {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-
+	id := rand.Intn(1000) + int(time.Now().UnixNano())
 	scanner := bufio.NewScanner(conn)
+	subscribingDevices := []string{}
 	for scanner.Scan() {
 		message := scanner.Text()
-		parts := strings.Split(message, ",")
 
-		if len(parts) == 3 {
+		parts := strings.Split(message, ",")
+		if len(parts) == 2 {
+			// Create data stream (subscribe,sensor_id)
+			if parts[0] == "subscribe" {
+
+				subscribingDevices = append(subscribingDevices, parts[1])
+				if len(subscribingDevices) == 1 {
+					fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
+						// if in the list of subscribing devices, send the message
+						if slices.Contains(subscribingDevices, msg.ID) {
+							conn.Write([]byte(fmt.Sprintf("%v\n", msg)))
+						}
+
+					})
+				}
+
+			} else if parts[0] == "unsubscribe" {
+				for i, device := range subscribingDevices {
+					if device == parts[1] {
+						subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
+						break
+					}
+				}
+				if len(subscribingDevices) == 0 {
+					fanoutManager.RemoveConsumer(id)
+				}
+			}
+
+		} else if len(parts) == 3 {
 			// Store data point
 			id := parts[0]
 			timestamp, _ := strconv.ParseInt(parts[1], 10, 64)
 			value, _ := strconv.ParseFloat(parts[2], 64)
 
-			dataPoint := DataPoint{
+			dataPoint := models.DataPoint{
 				ID:        id,
 				Timestamp: timestamp,
 				Value:     value,
@@ -95,7 +122,7 @@ var dataFileHandles = make(map[string]*os.File)
 var indexFileHandles = make(map[string]*os.File)
 var metaFileHandles = make(map[string]*os.File)
 
-func storeDataPoint(dataPoint DataPoint) {
+func storeDataPoint(dataPoint models.DataPoint) {
 	filename := dataPoint.ID + ".aof"
 	file, ok := dataFileHandles[filename]
 	if !ok {
@@ -178,7 +205,7 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 	indexFile.WriteString(line)
 }
 
-func readDataPoints(id string, startTime, endTime int64, downsample int) []DataPoint {
+func readDataPoints(id string, startTime, endTime int64, downsample int) []models.DataPoint {
 	filename := id + ".aof"
 	file, ok := dataFileHandles[filename]
 	if !ok {
@@ -190,7 +217,7 @@ func readDataPoints(id string, startTime, endTime int64, downsample int) []DataP
 		}
 		dataFileHandles[filename] = file
 	}
-	var dataPoints []DataPoint
+	var dataPoints []models.DataPoint
 	reader := bufio.NewReader(file)
 
 	indexFilename := id + ".idx"
@@ -251,7 +278,7 @@ func readDataPoints(id string, startTime, endTime int64, downsample int) []DataP
 		}
 
 		if timestamp >= startTime && timestamp <= endTime {
-			dataPoints = append(dataPoints, DataPoint{
+			dataPoints = append(dataPoints, models.DataPoint{
 				ID:        id,
 				Timestamp: timestamp,
 				Value:     value,
@@ -265,12 +292,12 @@ func readDataPoints(id string, startTime, endTime int64, downsample int) []DataP
 
 	return dataPoints
 }
-func downsampleDataPoints(dataPoints []DataPoint, downsample int) []DataPoint {
+func downsampleDataPoints(dataPoints []models.DataPoint, downsample int) []models.DataPoint {
 	if len(dataPoints) == 0 {
 		return dataPoints
 	}
 
-	var downsampled []DataPoint
+	var downsampled []models.DataPoint
 	intervalStart := dataPoints[0].Timestamp
 	intervalSum := 0.0
 	intervalCount := 0
@@ -280,7 +307,7 @@ func downsampleDataPoints(dataPoints []DataPoint, downsample int) []DataPoint {
 			// Reached the end of the current interval
 			if intervalCount > 0 {
 				avgValue := intervalSum / float64(intervalCount)
-				downsampled = append(downsampled, DataPoint{
+				downsampled = append(downsampled, models.DataPoint{
 					ID:        dp.ID,
 					Timestamp: intervalStart,
 					Value:     avgValue,
@@ -300,7 +327,7 @@ func downsampleDataPoints(dataPoints []DataPoint, downsample int) []DataPoint {
 	// Process the last interval
 	if intervalCount > 0 {
 		avgValue := intervalSum / float64(intervalCount)
-		downsampled = append(downsampled, DataPoint{
+		downsampled = append(downsampled, models.DataPoint{
 			ID:        dataPoints[len(dataPoints)-1].ID,
 			Timestamp: intervalStart,
 			Value:     avgValue,
@@ -310,7 +337,7 @@ func downsampleDataPoints(dataPoints []DataPoint, downsample int) []DataPoint {
 	return downsampled
 }
 
-func formatDataPoints(dataPoints []DataPoint) string {
+func formatDataPoints(dataPoints []models.DataPoint) string {
 	var response string
 
 	for i, dp := range dataPoints {

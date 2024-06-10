@@ -47,7 +47,6 @@ ok      gtsdb   22.267s
 
 Explanation:
 - This benchmark does 50% read and 50% write operations to 100 different keys(devices).
-- The benchmark is run on a 13th Gen Intel(R) Core(TM) i7-13700KF CPU.
 - It performs 249386 operations in 22.267 seconds. The operations include read and write operations.
 
 ## Todo
@@ -59,6 +58,7 @@ Explanation:
 - [ ] HTTP Server (REST API)
 - [ ] More Downsampling options(like sum, min, max, etc.)
 - [ ] Do errcheck Handling
+- [ ] Subscription and then streaming
 
 ## License
 
