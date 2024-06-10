@@ -67,7 +67,9 @@ func handleConnection(conn net.Conn) {
 
 				subscribingDevices = append(subscribingDevices, parts[1])
 				if len(subscribingDevices) == 1 {
+					fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
 					fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
+						fmt.Println("Received message:", msg)
 						// if in the list of subscribing devices, send the message
 						if slices.Contains(subscribingDevices, msg.ID) {
 							conn.Write([]byte(fmt.Sprintf("%v\n", msg)))
@@ -75,6 +77,7 @@ func handleConnection(conn net.Conn) {
 
 					})
 				}
+				conn.Write([]byte("msg:Subscribed to " + parts[1] + "\n"))
 
 			} else if parts[0] == "unsubscribe" {
 				for i, device := range subscribingDevices {
@@ -86,6 +89,7 @@ func handleConnection(conn net.Conn) {
 				if len(subscribingDevices) == 0 {
 					fanoutManager.RemoveConsumer(id)
 				}
+				conn.Write([]byte("msg:Unsubscribed from " + parts[1] + "\n"))
 			}
 
 		} else if len(parts) == 3 {
