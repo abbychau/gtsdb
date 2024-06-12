@@ -33,7 +33,7 @@ sensor2,1717971018,51.14|sensor2,1717974618,48.96|sensor2,1717978218,49.60|senso
 
 ## Performance
 
-[Benchmark](./main_test.go)
+[Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
 
 ```
 goos: windows
@@ -58,7 +58,7 @@ Explanation:
 - [ ] HTTP Server (REST API)
 - [ ] More Downsampling options(like sum, min, max, etc.)
 - [ ] Do errcheck Handling
-- [ ] Subscription and then streaming
+- [ ] Subscription and then streaming (almost finished) (cmd: `subscribe,sensor1`, `unsubscribe,sensor1`)
 
 ## License
 
