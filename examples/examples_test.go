@@ -12,15 +12,17 @@ import (
 )
 
 func TestMain(t *testing.T) {
-	// Delete the data files (sensor1.aof, sensor2.aof, sensor1.idx, sensor2.idx, sensor1.meta, sensor2.meta) before running the test
-	files := []string{"sensor1.aof", "sensor2.aof", "sensor1.idx", "sensor2.idx", "sensor1.meta", "sensor2.meta"}
+	// Delete the data files (any file in data folder)
+	files, _ := os.ReadDir("data")
 	for _, file := range files {
-		os.Remove(file)
+		t.Log("Removing file:", file.Name())
+		e := os.Remove("data/" + file.Name())
+		if e != nil {
+			t.Fatal("Error removing file:", e)
+		}
 	}
-
 	// Wait for the server to start
 	time.Sleep(3 * time.Second)
-
 	// Connect to the server
 	conn, err := net.Dial("tcp", ":5555")
 	if err != nil {
@@ -36,13 +38,13 @@ func TestMain(t *testing.T) {
 		value1 := rand.Float64() * 100
 		value2 := rand.Float64() * 100
 
-		fmt.Fprintf(conn, "sensor1,%d,%.2f\n", timestamp, value1)
+		fmt.Fprintf(conn, "write,sensor1,%d,%.2f\n", timestamp, value1)
 		response, _ := bufio.NewReader(conn).ReadString('\n')
 		if strings.TrimSpace(response) != "Data point stored" {
 			t.Error("Unexpected response when storing data point:", response)
 		}
 
-		fmt.Fprintf(conn, "sensor2,%d,%.2f\n", timestamp, value2)
+		fmt.Fprintf(conn, "write,sensor2,%d,%.2f\n", timestamp, value2)
 		response, _ = bufio.NewReader(conn).ReadString('\n')
 		if strings.TrimSpace(response) != "Data point stored" {
 			t.Error("Unexpected response when storing data point:", response)
@@ -65,7 +67,7 @@ func TestMainRead(t *testing.T) {
 	defer conn.Close()
 
 	// Test reading data points
-	fmt.Fprintf(conn, "sensor1,%d,%d,%d\n", 0, 1717976639, 1000)
+	fmt.Fprintf(conn, "read,sensor1,%d,%d,%d\n", 0, 1717976639, 1000)
 	response, _ := bufio.NewReader(conn).ReadString('\n')
 	// assert len > 0
 	if len(response) == 0 {
@@ -110,7 +112,7 @@ func TestMainStreaming(t *testing.T) {
 	// producer send data
 	timestamp := time.Now().Unix()
 	value1 := rand.Float64() * 100
-	fmt.Fprintf(connProducer, "sensor1,%d,%.2f\n", timestamp, value1)
+	fmt.Fprintf(connProducer, "write,sensor1,%d,%.2f\n", timestamp, value1)
 
 	// consumer read data
 	res, _ = bufio.NewReader(connConsumer).ReadString('\n')
@@ -122,6 +124,57 @@ func TestMainStreaming(t *testing.T) {
 	res, _ = bufio.NewReader(connConsumer2).ReadString('\n')
 	if res != fmt.Sprintf("sensor1,%d,%.2f\n", timestamp, value1) {
 		t.Error("Unexpected response when reading data points:", res)
+	}
+
+}
+
+// test aggregation
+func TestMainAggregation(t *testing.T) {
+	// data points
+	dataPoints := []string{
+		"sensor1,1,1",
+		"sensor1,2,2",
+		"sensor1,3,3",
+		"sensor1,4,4",
+		"sensor1,5,5",
+		"sensor1,6,6",
+		"sensor1,7,7",
+		"sensor1,8,8",
+		"sensor1,9,9",
+		"sensor1,10,10",
+	}
+
+	// Connect to the server
+	conn, err := net.Dial("tcp", ":5555")
+	if err != nil {
+		t.Fatal("Error connecting to server:", err)
+	}
+	defer conn.Close()
+
+	// expected aggregation
+	expected := map[string]float64{
+		"avg": 5.5,
+		"sum": 55,
+		"min": 1,
+		"max": 10,
+	}
+
+	// store data points
+	for _, dataPoint := range dataPoints {
+		fmt.Fprintf(conn, "%s\n", dataPoint)
+		response, _ := bufio.NewReader(conn).ReadString('\n')
+		if strings.TrimSpace(response) != "Data point stored" {
+			t.Error("Unexpected response when storing data point:", response)
+		}
+	}
+
+	// test aggregation
+	for aggregation, value := range expected {
+		fmt.Fprintf(conn, "sensor1,1,1817971018,0,%s\n", aggregation)
+		response, _ := bufio.NewReader(conn).ReadString('\n')
+		if strings.TrimSpace(response) != fmt.Sprintf("sensor1,1,%.2f\n", value) {
+			t.Error("Unexpected response when aggregating data points:", response)
+		}
 	}
 
 }

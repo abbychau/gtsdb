@@ -1,0 +1,952 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>adapters: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">gtsdb/adapters/gtsdbDriver.go (0.0%)</option>
+				
+				<option value="file1">gtsdb/buffer.go (78.4%)</option>
+				
+				<option value="file2">gtsdb/connectionHandler.go (84.5%)</option>
+				
+				<option value="file3">gtsdb/engine.go (56.4%)</option>
+				
+				<option value="file4">gtsdb/fanout/fanout.go (61.9%)</option>
+				
+				<option value="file5">gtsdb/main.go (0.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package gtsdbclient
+
+import (
+        "bufio"
+        "errors"
+        "fmt"
+        "net"
+        "strconv"
+        "strings"
+        "sync"
+        "time"
+)
+
+type Client struct {
+        address    string
+        conn       net.Conn
+        mu         sync.Mutex
+        reconnect  bool
+        maxRetries int
+}
+
+type DataPoint struct {
+        Timestamp int64
+        Value     float64
+}
+
+type QueryResult struct {
+        Key       string
+        Timestamp int64
+        Value     float64
+}
+
+const (
+        defaultMaxRetries = 3
+        reconnectDelay    = time.Second
+)
+
+// NewClient creates a new TSDB client with auto-reconnection
+func NewClient(address string) *Client <span class="cov0" title="0">{
+        return &amp;Client{
+                address:    address,
+                reconnect:  true,
+                maxRetries: defaultMaxRetries,
+        }
+}</span>
+
+func (c *Client) connect() error <span class="cov0" title="0">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.conn != nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">conn, err := net.Dial("tcp", c.address)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("connection failed: %w", err)
+        }</span>
+        <span class="cov0" title="0">c.conn = conn
+        return nil</span>
+}
+
+func (c *Client) ensureConnected() error <span class="cov0" title="0">{
+        var err error
+        for retry := 0; retry &lt; c.maxRetries; retry++ </span><span class="cov0" title="0">{
+                if c.conn != nil </span><span class="cov0" title="0">{
+                        // Test connection
+                        if _, err := c.conn.Write([]byte("")); err == nil </span><span class="cov0" title="0">{
+                                return nil
+                        }</span>
+                        <span class="cov0" title="0">c.conn.Close()
+                        c.conn = nil</span>
+                }
+
+                <span class="cov0" title="0">err = c.connect()
+                if err == nil </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+
+                <span class="cov0" title="0">time.Sleep(reconnectDelay)</span>
+        }
+        <span class="cov0" title="0">return fmt.Errorf("failed to connect after %d retries: %w", c.maxRetries, err)</span>
+}
+
+func (c *Client) writeCommand(cmd string) error <span class="cov0" title="0">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if err := c.ensureConnected(); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov0" title="0">_, err := fmt.Fprintf(c.conn, "%s\n", cmd)
+        return err</span>
+}
+
+func (c *Client) readResponse() (string, error) <span class="cov0" title="0">{
+        if err := c.ensureConnected(); err != nil </span><span class="cov0" title="0">{
+                return "", err
+        }</span>
+
+        <span class="cov0" title="0">reader := bufio.NewReader(c.conn)
+        response, err := reader.ReadString('\n')
+        return strings.TrimSpace(response), err</span>
+}
+
+// StoreValue stores a single value for a key
+func (c *Client) StoreValue(key string, value float64) error <span class="cov0" title="0">{
+        timestamp := time.Now().Unix()
+        return c.writeCommand(fmt.Sprintf("%s,%d,%.6f", key, timestamp, value))
+}</span>
+
+// StoreValueAt stores a value for a key at a specific timestamp
+func (c *Client) StoreValueAt(key string, timestamp time.Time, value float64) error <span class="cov0" title="0">{
+        return c.writeCommand(fmt.Sprintf("%s,%d,%.6f", key, timestamp.Unix(), value))
+}</span>
+
+// GetTimeRange retrieves data for a key within a time range with optional downsampling
+func (c *Client) GetTimeRange(key string, start, end time.Time, downsampleSeconds int) ([]QueryResult, error) <span class="cov0" title="0">{
+        cmd := fmt.Sprintf("%s,%d,%d,%d", key, start.Unix(), end.Unix(), downsampleSeconds)
+        if err := c.writeCommand(cmd); err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">response, err := c.readResponse()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">return parseQueryResponse(response)</span>
+}
+
+// GetLastValue retrieves the most recent value for a key
+func (c *Client) GetLastValue(key string) (*QueryResult, error) <span class="cov0" title="0">{
+        end := time.Now()
+        start := end.Add(-time.Minute) // Small window to get last value
+        results, err := c.GetTimeRange(key, start, end, 0)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov0" title="0">if len(results) == 0 </span><span class="cov0" title="0">{
+                return nil, errors.New("no data found")
+        }</span>
+        <span class="cov0" title="0">return &amp;results[len(results)-1], nil</span>
+}
+
+// GetAggregatedValue retrieves downsampled data for a key over a duration
+func (c *Client) GetAggregatedValue(key string, duration time.Duration, downsampleSeconds int) ([]QueryResult, error) <span class="cov0" title="0">{
+        end := time.Now()
+        start := end.Add(-duration)
+        return c.GetTimeRange(key, start, end, downsampleSeconds)
+}</span>
+
+// Close closes the connection to the TSDB
+func (c *Client) Close() error <span class="cov0" title="0">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.conn != nil </span><span class="cov0" title="0">{
+                err := c.conn.Close()
+                c.conn = nil
+                return err
+        }</span>
+        <span class="cov0" title="0">return nil</span>
+}
+
+// Helper function to parse the query response
+func parseQueryResponse(response string) ([]QueryResult, error) <span class="cov0" title="0">{
+        if response == "" </span><span class="cov0" title="0">{
+                return []QueryResult{}, nil
+        }</span>
+
+        <span class="cov0" title="0">parts := strings.Split(response, "|")
+        results := make([]QueryResult, 0, len(parts))
+
+        for _, part := range parts </span><span class="cov0" title="0">{
+                fields := strings.Split(part, ",")
+                if len(fields) != 3 </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">timestamp, err := strconv.ParseInt(fields[1], 10, 64)
+                if err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">value, err := strconv.ParseFloat(fields[2], 64)
+                if err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">results = append(results, QueryResult{
+                        Key:       fields[0],
+                        Timestamp: timestamp,
+                        Value:     value,
+                })</span>
+        }
+
+        <span class="cov0" title="0">return results, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package main
+
+import (
+        "fmt"
+        fanout "gtsdb/fanout"
+        models "gtsdb/models"
+        "io"
+        "os"
+        "sync"
+)
+
+const indexInterval = 5000
+
+var dataDir = "data"
+
+const maxUnflushedDataPoints = 5000
+
+var fanoutManager = fanout.NewFanout()
+var dataFileHandles = make(map[string]*os.File)
+var indexFileHandles = make(map[string]*os.File)
+var metaFileHandles = make(map[string]*os.File)
+var ringBuffer = make(map[string][]models.DataPoint)
+var rwMutex = make(map[string]*sync.RWMutex)
+var lockForInit = &amp;sync.Mutex{}
+
+func initLock(id string) <span class="cov8" title="1">{
+        lockForInit.Lock()
+        defer lockForInit.Unlock()
+        if _, ok := rwMutex[id]; !ok </span><span class="cov8" title="1">{
+                rwMutex[id] = &amp;sync.RWMutex{}
+        }</span>
+}
+
+func storeDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
+        initLock(dataPoint.ID)
+        rwMutex[dataPoint.ID].Lock()
+        defer rwMutex[dataPoint.ID].Unlock()
+        ringBuffer[dataPoint.ID] = append(ringBuffer[dataPoint.ID], dataPoint)
+        if len(ringBuffer[dataPoint.ID]) &gt;= maxUnflushedDataPoints </span><span class="cov0" title="0">{
+                go storeDataPointBufferToFile(dataPoint.ID)
+        }</span>
+}
+
+func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
+        initLock(id)
+        rwMutex[id].RLock()
+        defer rwMutex[id].RUnlock()
+        var result []models.DataPoint
+        for _, dataPoint := range ringBuffer[id] </span><span class="cov8" title="1">{
+                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
+                        result = append(result, dataPoint)
+                }</span>
+        }
+
+        <span class="cov8" title="1">return result</span>
+}
+
+func storeDataPointBufferToFile(id string) <span class="cov0" title="0">{
+        initLock(id)
+        rwMutex[id].Lock()
+        defer rwMutex[id].Unlock()
+        dataPoints := ringBuffer[id]
+        ringBuffer[id] = nil
+        storeDataPoints(id, dataPoints)
+}</span>
+
+func flushRemainingDataPoints() <span class="cov8" title="1">{
+        for id, dataPoints := range ringBuffer </span><span class="cov8" title="1">{
+                if len(dataPoints) &gt; 0 </span><span class="cov8" title="1">{
+                        storeDataPoints(id, dataPoints)
+                }</span>
+        }
+}
+func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
+        dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
+        metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
+        indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
+        for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
+
+                line := fmt.Sprintf("%d,%.2f\n", dataPoint.Timestamp, dataPoint.Value)
+                dataFile.WriteString(line)
+                count := readMetaCount(metaFile)
+                count++
+                writeMetaCount(metaFile, count)
+
+                if count%indexInterval == 0 </span><span class="cov0" title="0">{
+
+                        //end position of this file
+                        offset, _ := dataFile.Seek(0, io.SeekEnd)
+                        offset -= int64(len(line))
+                        updateIndexFile(indexFile, dataPoint.Timestamp, offset)
+                }</span>
+        }
+}
+func prepareFileHandles(fileName string, handleArray map[string]*os.File) *os.File <span class="cov8" title="1">{
+        initLock(fileName)
+        rwMutex[fileName].Lock()
+        defer rwMutex[fileName].Unlock()
+        file, ok := handleArray[fileName]
+        if !ok </span><span class="cov8" title="1">{
+                var err error
+                file, err = os.OpenFile(dataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+                <span class="cov8" title="1">handleArray[fileName] = file</span>
+        }
+        <span class="cov8" title="1">return file</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package main
+
+import (
+        "bufio"
+        "fmt"
+        models "gtsdb/models"
+        "math/rand"
+        "net"
+        "slices"
+        "strconv"
+        "strings"
+        "time"
+)
+
+func handleConnection(conn net.Conn) <span class="cov8" title="1">{
+        defer conn.Close()
+        id := rand.Intn(1000) + int(time.Now().UnixNano())
+        scanner := bufio.NewScanner(conn)
+        subscribingDevices := []string{}
+        for scanner.Scan() </span><span class="cov8" title="1">{
+                message := scanner.Text()
+                parts := strings.Split(message, ",")
+
+                action := parts[0]
+                switch action </span>{
+                case "subscribe":<span class="cov8" title="1">
+                        subscribingDevices = append(subscribingDevices, parts[1])
+                        if len(subscribingDevices) == 1 </span><span class="cov8" title="1">{ // First subscription
+                                fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
+                                fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
+                                        fmt.Println("Received message:", msg)
+                                        if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
+                                                conn.Write([]byte(fmt.Sprintf("%v\n", msg)))
+                                        }</span>
+                                })
+                        }
+                        <span class="cov8" title="1">conn.Write([]byte("msg:Subscribed to " + parts[1] + "\n"))</span>
+
+                case "unsubscribe":<span class="cov8" title="1">
+                        for i, device := range subscribingDevices </span><span class="cov8" title="1">{
+                                if device == parts[1] </span><span class="cov8" title="1">{
+                                        subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
+                                        break</span>
+                                }
+                        }
+                        <span class="cov8" title="1">if len(subscribingDevices) == 0 </span><span class="cov8" title="1">{
+                                fmt.Printf("Removing consumer %d\n", id)
+                                fanoutManager.RemoveConsumer(id)
+                        }</span>
+                        <span class="cov8" title="1">conn.Write([]byte("msg:Unsubscribed from " + parts[1] + "\n"))</span>
+
+                case "write":<span class="cov8" title="1">
+                        if len(parts) != 4 </span><span class="cov8" title="1">{
+                                conn.Write([]byte("Invalid write format\n"))
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">id := parts[1]
+                        timestamp, tsErr := strconv.ParseInt(parts[2], 10, 64)
+                        if tsErr != nil || timestamp &lt;= 0 </span><span class="cov0" title="0">{
+                                timestamp = time.Now().Unix()
+                        }</span>
+
+                        <span class="cov8" title="1">value, _ := strconv.ParseFloat(parts[3], 64)
+
+                        dataPoint := models.DataPoint{
+                                ID:        id,
+                                Timestamp: timestamp,
+                                Value:     value,
+                        }
+                        storeDataPointBuffer(dataPoint)
+                        conn.Write([]byte("Data point stored\n"))</span>
+
+                case "read":<span class="cov8" title="1">
+                        if len(parts) &lt; 5 </span><span class="cov8" title="1">{
+                                conn.Write([]byte("Invalid read format\n"))
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">id := parts[1]
+                        startTime, _ := strconv.ParseInt(parts[2], 10, 64)
+                        endTime, _ := strconv.ParseInt(parts[3], 10, 64)
+                        downsample, _ := strconv.Atoi(parts[4])
+
+                        var response string
+                        if downsample &lt; 0 </span><span class="cov0" title="0">{
+                                lastDataPoints, err := readLastDataPoints(id, downsample*-1)
+                                if err != nil </span><span class="cov0" title="0">{
+                                        response = "Error reading last data point\n"
+                                }</span> else<span class="cov0" title="0"> {
+                                        response = formatDataPoints(lastDataPoints)
+                                }</span>
+                        } else<span class="cov8" title="1"> {
+                                aggregation := "avg"
+                                if len(parts) == 6 </span><span class="cov0" title="0">{
+                                        aggregation = parts[5]
+                                }</span>
+                                <span class="cov8" title="1">dataPoints := readDataPoints(id, startTime, endTime, downsample, aggregation)
+                                response = formatDataPoints(dataPoints)</span>
+                        }
+                        <span class="cov8" title="1">conn.Write([]byte(response))</span>
+                case "flush":<span class="cov8" title="1">
+                        flushRemainingDataPoints()
+                        conn.Write([]byte("Data points flushed\n"))</span>
+
+                default:<span class="cov8" title="1">
+                        conn.Write([]byte("Invalid action\n"))</span>
+                }
+        }
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package main
+
+import (
+        "bufio"
+        "fmt"
+        models "gtsdb/models"
+        "io"
+        "os"
+        "strconv"
+        "strings"
+)
+
+func readMetaCount(metaFile *os.File) int <span class="cov8" title="1">{
+        _, err := metaFile.Seek(0, io.SeekStart)
+        if err != nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">scanner := bufio.NewScanner(metaFile)
+        if scanner.Scan() </span><span class="cov8" title="1">{
+                countStr := strings.TrimPrefix(scanner.Text(), "count:")
+                count, _ := strconv.Atoi(countStr)
+                return count
+        }</span>
+
+        <span class="cov8" title="1">return 0</span>
+}
+
+func writeMetaCount(metaFile *os.File, count int) <span class="cov8" title="1">{
+        _, err := metaFile.Seek(0, io.SeekStart)
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("Error seeking meta file:", err)
+                return
+        }</span>
+
+        <span class="cov8" title="1">metaFile.Truncate(0)
+        metaFile.WriteString(fmt.Sprintf("count:%d\n", count))</span>
+}
+
+func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span class="cov0" title="0">{
+        line := fmt.Sprintf("%d,%d\n", timestamp, offset)
+        indexFile.WriteString(line)
+}</span>
+func dataFileById(id string) *os.File <span class="cov8" title="1">{
+        filename := id + ".aof"
+        file, ok := dataFileHandles[filename]
+        if !ok </span><span class="cov8" title="1">{
+                var err error
+                file, err = os.OpenFile(dataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error opening file:", err)
+                        return nil
+                }</span>
+                <span class="cov8" title="1">dataFileHandles[filename] = file</span>
+        }
+        <span class="cov8" title="1">return file</span>
+}
+func readDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
+
+        dataPoints := readBufferedDataPoints(id, startTime, endTime)
+        if len(dataPoints) == 0 </span><span class="cov8" title="1">{
+                dataPoints = readFiledDataPoints(id, startTime, endTime)
+        }</span>
+
+        <span class="cov8" title="1">if downsample &gt; 1 </span><span class="cov8" title="1">{
+                dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
+        }</span>
+
+        <span class="cov8" title="1">return dataPoints</span>
+}
+
+func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
+        file := dataFileById(id)
+        var dataPoints []models.DataPoint
+        reader := bufio.NewReader(file)
+
+        indexFilename := id + ".idx"
+        indexFile, ok := indexFileHandles[indexFilename]
+        if ok </span><span class="cov0" title="0">{
+                indexReader := bufio.NewReader(indexFile)
+                var offset int64
+
+                _, err := indexFile.Seek(0, io.SeekStart)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error seeking index file:", err)
+                        return nil
+                }</span>
+
+                <span class="cov0" title="0">for </span><span class="cov0" title="0">{
+                        line, err := indexReader.ReadString('\n')
+                        if err != nil </span><span class="cov0" title="0">{
+                                break</span>
+                        }
+
+                        <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
+                        timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
+                        if timestamp &gt; startTime </span><span class="cov0" title="0">{
+                                break</span>
+                        }
+                        <span class="cov0" title="0">offset, _ = strconv.ParseInt(parts[1], 10, 64)</span>
+                }
+
+                <span class="cov0" title="0">_, err = file.Seek(offset, io.SeekStart)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error seeking data file:", err)
+                        return nil
+                }</span>
+        } else<span class="cov8" title="1"> {
+                _, err := file.Seek(0, io.SeekStart)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error seeking data file:", err)
+                        return nil
+                }</span>
+        }
+
+        <span class="cov8" title="1">for </span><span class="cov8" title="1">{
+                line, err := reader.ReadString('\n')
+                if err != nil </span><span class="cov8" title="1">{
+                        if err == io.EOF </span><span class="cov8" title="1">{
+                                break</span>
+                        }
+                        <span class="cov0" title="0">fmt.Println("Error reading file:", err)
+                        return nil</span>
+                }
+
+                <span class="cov8" title="1">parts := strings.Split(strings.TrimSpace(line), ",")
+                timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
+                value, _ := strconv.ParseFloat(parts[1], 64)
+
+                if timestamp &gt; endTime </span><span class="cov8" title="1">{
+                        break</span>
+                }
+
+                <span class="cov8" title="1">if timestamp &gt;= startTime &amp;&amp; timestamp &lt;= endTime </span><span class="cov8" title="1">{
+                        dataPoints = append(dataPoints, models.DataPoint{
+                                ID:        id,
+                                Timestamp: timestamp,
+                                Value:     value,
+                        })
+                }</span>
+        }
+
+        <span class="cov8" title="1">return dataPoints</span>
+}
+
+func readLastDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov0" title="0">{
+        file := dataFileById(id)
+        reader := bufio.NewReader(file)
+
+        // Seek from the end of the file
+        _, err := file.Seek(0, io.SeekEnd)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">var dataPoints []models.DataPoint
+        var line string
+
+        // Read lines from the end until we have the required count
+        for count &gt; 0 </span><span class="cov0" title="0">{
+                // Move back one byte to read the previous character
+                _, err = file.Seek(-2, io.SeekCurrent)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, err
+                }</span>
+
+                // Read the character
+                <span class="cov0" title="0">char, err := reader.ReadByte()
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, err
+                }</span>
+
+                // If we find a newline, we have a complete line
+                <span class="cov0" title="0">if char == '\n' </span><span class="cov0" title="0">{
+                        line, err = reader.ReadString('\n')
+                        if err != nil </span><span class="cov0" title="0">{
+                                return nil, err
+                        }</span>
+
+                        <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
+                        timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
+                        value, _ := strconv.ParseFloat(parts[1], 64)
+
+                        dataPoint := models.DataPoint{
+                                ID:        id,
+                                Timestamp: timestamp,
+                                Value:     value,
+                        }
+
+                        dataPoints = append([]models.DataPoint{dataPoint}, dataPoints...)
+                        count--</span>
+                }
+        }
+
+        <span class="cov0" title="0">return dataPoints, nil</span>
+}
+
+func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
+        if len(dataPoints) == 0 </span><span class="cov0" title="0">{
+                return dataPoints
+        }</span>
+
+        <span class="cov8" title="1">var downsampled []models.DataPoint
+        intervalStart := dataPoints[0].Timestamp
+        intervalSum := 0.0
+        intervalCount := 0
+        var intervalMin, intervalMax, intervalFirst, intervalLast float64
+        intervalFirst = dataPoints[0].Value
+
+        for _, dp := range dataPoints </span><span class="cov8" title="1">{
+                if dp.Timestamp-intervalStart &gt;= int64(downsample) </span><span class="cov8" title="1">{
+                        // Reached the end of the current interval
+                        if intervalCount &gt; 0 </span><span class="cov8" title="1">{
+                                var value float64
+                                switch aggregation </span>{
+                                case "avg":<span class="cov8" title="1">
+                                        value = intervalSum / float64(intervalCount)</span>
+                                case "sum":<span class="cov0" title="0">
+                                        value = intervalSum</span>
+                                case "min":<span class="cov0" title="0">
+                                        value = intervalMin</span>
+                                case "max":<span class="cov0" title="0">
+                                        value = intervalMax</span>
+                                case "first":<span class="cov0" title="0">
+                                        value = intervalFirst</span>
+                                case "last":<span class="cov0" title="0">
+                                        value = intervalLast</span>
+                                default:<span class="cov0" title="0">
+                                        value = intervalSum / float64(intervalCount)</span>
+                                }
+                                <span class="cov8" title="1">downsampled = append(downsampled, models.DataPoint{
+                                        ID:        dp.ID,
+                                        Timestamp: intervalStart,
+                                        Value:     value,
+                                })</span>
+                        }
+                        // Start a new interval
+                        <span class="cov8" title="1">intervalStart = dp.Timestamp
+                        intervalSum = dp.Value
+                        intervalCount = 1
+                        intervalMin = dp.Value
+                        intervalMax = dp.Value
+                        intervalFirst = dp.Value
+                        intervalLast = dp.Value</span>
+                } else<span class="cov8" title="1"> {
+                        // Accumulate values within the current interval
+                        intervalSum += dp.Value
+                        intervalCount++
+                        if dp.Value &lt; intervalMin </span><span class="cov0" title="0">{
+                                intervalMin = dp.Value
+                        }</span>
+                        <span class="cov8" title="1">if dp.Value &gt; intervalMax </span><span class="cov8" title="1">{
+                                intervalMax = dp.Value
+                        }</span>
+                        <span class="cov8" title="1">intervalLast = dp.Value</span>
+                }
+        }
+
+        // Process the last interval
+        <span class="cov8" title="1">if intervalCount &gt; 0 </span><span class="cov8" title="1">{
+                var value float64
+                switch aggregation </span>{
+                case "avg":<span class="cov8" title="1">
+                        value = intervalSum / float64(intervalCount)</span>
+                case "sum":<span class="cov0" title="0">
+                        value = intervalSum</span>
+                case "min":<span class="cov0" title="0">
+                        value = intervalMin</span>
+                case "max":<span class="cov8" title="1">
+                        value = intervalMax</span>
+                case "first":<span class="cov0" title="0">
+                        value = intervalFirst</span>
+                case "last":<span class="cov0" title="0">
+                        value = intervalLast</span>
+                default:<span class="cov0" title="0">
+                        value = intervalSum / float64(intervalCount)</span>
+                }
+                <span class="cov8" title="1">downsampled = append(downsampled, models.DataPoint{
+                        ID:        dataPoints[len(dataPoints)-1].ID,
+                        Timestamp: intervalStart,
+                        Value:     value,
+                })</span>
+        }
+
+        <span class="cov8" title="1">return downsampled</span>
+}
+
+func formatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
+        var response string
+
+        for i, dp := range dataPoints </span><span class="cov8" title="1">{
+                response += fmt.Sprintf("%s,%d,%.2f", dp.ID, dp.Timestamp, dp.Value)
+                if i &lt; len(dataPoints)-1 </span><span class="cov8" title="1">{
+                        response += "|"
+                }</span>
+        }
+
+        <span class="cov8" title="1">response += "\n"
+
+        return response</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package fanout
+
+import (
+        models "gtsdb/models"
+        "sync"
+)
+
+type Consumer struct {
+        ID       int
+        Callback func(models.DataPoint)
+}
+
+type Fanout struct {
+        consumers []*Consumer
+        messageCh chan models.DataPoint
+        mu        sync.RWMutex
+        wg        sync.WaitGroup
+}
+
+func NewFanout() *Fanout <span class="cov8" title="1">{
+        return &amp;Fanout{
+                consumers: make([]*Consumer, 0),
+                messageCh: make(chan models.DataPoint),
+        }
+}</span>
+
+func (f *Fanout) Start() <span class="cov8" title="1">{
+        go f.producer()
+}</span>
+
+func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) <span class="cov8" title="1">{
+        f.mu.Lock()
+        defer f.mu.Unlock()
+        consumer := &amp;Consumer{ID: id, Callback: callback}
+        f.consumers = append(f.consumers, consumer)
+        f.wg.Add(1)
+}</span>
+
+func (f *Fanout) RemoveConsumer(id int) <span class="cov0" title="0">{
+        f.mu.Lock()
+        defer f.mu.Unlock()
+        for i, c := range f.consumers </span><span class="cov0" title="0">{
+                if c.ID == id </span><span class="cov0" title="0">{
+                        f.consumers = append(f.consumers[:i], f.consumers[i+1:]...)
+                        f.wg.Done()
+                        break</span>
+                }
+        }
+}
+
+func (f *Fanout) Publish(msg models.DataPoint) <span class="cov8" title="1">{
+        f.messageCh &lt;- msg
+}</span>
+
+func (f *Fanout) Wait() <span class="cov0" title="0">{
+        f.wg.Wait()
+}</span>
+
+func (f *Fanout) producer() <span class="cov8" title="1">{
+        for msg := range f.messageCh </span><span class="cov8" title="1">{
+                f.mu.RLock()
+                for _, c := range f.consumers </span><span class="cov8" title="1">{
+                        go c.Callback(msg)
+                }</span>
+                <span class="cov8" title="1">f.mu.RUnlock()</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package main
+
+import (
+        "fmt"
+        "net"
+        "os"
+)
+
+func main() <span class="cov0" title="0">{
+        fanoutManager.Start() //this will start 2 go routines in the background
+        defer func() </span><span class="cov0" title="0">{
+                // This will run when the main function exits
+                fmt.Println("GTSDB is shutting down...")
+                flushRemainingDataPoints()
+                fmt.Println("Done.")
+        }</span>()
+
+        //if dataDir does not exist, create it
+        <span class="cov0" title="0">if _, err := os.Stat(dataDir); os.IsNotExist(err) </span><span class="cov0" title="0">{
+                err := os.Mkdir(dataDir, 0755)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error creating data directory:", err)
+                        os.Exit(1)
+                }</span>
+        }
+        <span class="cov0" title="0">listener, err := net.Listen("tcp", ":5555")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("Error listening:", err)
+                os.Exit(1)
+        }</span>
+        <span class="cov0" title="0">defer listener.Close()
+
+        fmt.Println("Listening on :5555")
+
+        for </span><span class="cov0" title="0">{
+                conn, err := listener.Accept()
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error accepting connection:", err)
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">go handleConnection(conn)</span>
+        }
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

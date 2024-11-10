@@ -1,10 +1,8 @@
 package fanout
 
 import (
-	"fmt"
-	"sync"
-
 	models "gtsdb/models"
+	"sync"
 )
 
 type Consumer struct {
@@ -13,34 +11,41 @@ type Consumer struct {
 }
 
 type Fanout struct {
-	consumers        []*Consumer
-	consumerCh       chan *Consumer
-	removeConsumerCh chan int
-	messageCh        chan models.DataPoint
-	wg               sync.WaitGroup
+	consumers []*Consumer
+	messageCh chan models.DataPoint
+	mu        sync.RWMutex
+	wg        sync.WaitGroup
 }
 
 func NewFanout() *Fanout {
 	return &Fanout{
-		consumers:        make([]*Consumer, 0),
-		consumerCh:       make(chan *Consumer),
-		removeConsumerCh: make(chan int),
-		messageCh:        make(chan models.DataPoint),
+		consumers: make([]*Consumer, 0),
+		messageCh: make(chan models.DataPoint),
 	}
 }
 
 func (f *Fanout) Start() {
 	go f.producer()
-	go f.consumerManager()
 }
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	consumer := &Consumer{ID: id, Callback: callback}
-	f.consumerCh <- consumer
+	f.consumers = append(f.consumers, consumer)
+	f.wg.Add(1)
 }
 
 func (f *Fanout) RemoveConsumer(id int) {
-	f.removeConsumerCh <- id
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, c := range f.consumers {
+		if c.ID == id {
+			f.consumers = append(f.consumers[:i], f.consumers[i+1:]...)
+			f.wg.Done()
+			break
+		}
+	}
 }
 
 func (f *Fanout) Publish(msg models.DataPoint) {
@@ -53,28 +58,10 @@ func (f *Fanout) Wait() {
 
 func (f *Fanout) producer() {
 	for msg := range f.messageCh {
+		f.mu.RLock()
 		for _, c := range f.consumers {
 			go c.Callback(msg)
 		}
-	}
-}
-
-func (f *Fanout) consumerManager() {
-	for {
-		select {
-		case consumer := <-f.consumerCh:
-			f.consumers = append(f.consumers, consumer)
-			fmt.Printf("Added consumer %d\n", consumer.ID)
-			f.wg.Add(1)
-		case id := <-f.removeConsumerCh:
-			for i, c := range f.consumers {
-				if c.ID == id {
-					f.consumers = append(f.consumers[:i], f.consumers[i+1:]...)
-					fmt.Printf("Removed consumer %d\n", id)
-					f.wg.Done()
-					break
-				}
-			}
-		}
+		f.mu.RUnlock()
 	}
 }
