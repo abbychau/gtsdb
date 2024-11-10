@@ -42,6 +42,7 @@ unsubscribe,sensor1
 [Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
 
 ```
+Version: 2024 06 06
 goos: windows
 goarch: amd64
 pkg: gtsdb
@@ -49,6 +50,17 @@ cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
 BenchmarkMain-24          249386             47291 ns/op
 PASS
 ok      gtsdb   22.267s
+```
+
+```
+Version: 2024 11 11
+goos: windows
+goarch: amd64
+pkg: gtsdb
+cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
+BenchmarkMain-24          705349             17267 ns/op
+PASS
+ok      gtsdb   12.466s
 ```
 
 Explanation:

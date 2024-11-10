@@ -43,6 +43,8 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 }
 func dataFileById(id string) *os.File {
 	filename := id + ".aof"
+	rwMutex[id].RLock()
+	defer rwMutex[id].RUnlock()
 	file, ok := dataFileHandles[filename]
 	if !ok {
 		var err error
