@@ -2,27 +2,27 @@ package main
 
 import (
 	"fmt"
+	"gtsdb/buffer"
+	"gtsdb/fanout"
+	"gtsdb/utils"
 	"net"
 	"os"
 )
 
+var fanoutManager = fanout.NewFanout()
+
 func main() {
-	fanoutManager.Start() //this will start 2 go routines in the background
+	utils.InitDataDirectory()
+	fanoutManager.Start()                //this will start 2 go routines in the background
+	go buffer.StartPeriodicFlushWorker() //this will start 1 go routine in the background
+
 	defer func() {
 		// This will run when the main function exits
 		fmt.Println("GTSDB is shutting down...")
-		flushRemainingDataPoints()
+		buffer.FlushRemainingDataPoints()
 		fmt.Println("Done.")
 	}()
 
-	//if dataDir does not exist, create it
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-		err := os.Mkdir(dataDir, 0755)
-		if err != nil {
-			fmt.Println("Error creating data directory:", err)
-			os.Exit(1)
-		}
-	}
 	listener, err := net.Listen("tcp", ":5555")
 	if err != nil {
 		fmt.Println("Error listening:", err)

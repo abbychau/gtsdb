@@ -1,9 +1,10 @@
-package main
+package buffer
 
 import (
 	"bufio"
 	"fmt"
-	models "gtsdb/models"
+	"gtsdb/models"
+	"gtsdb/utils"
 	"io"
 	"os"
 	"strconv"
@@ -43,12 +44,14 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 }
 func dataFileById(id string) *os.File {
 	filename := id + ".aof"
-	rwMutex[id].RLock()
-	defer rwMutex[id].RUnlock()
+	initLock(filename)
+	rwMutex[filename].RLock()
+	defer rwMutex[filename].RUnlock()
+
 	file, ok := dataFileHandles[filename]
 	if !ok {
 		var err error
-		file, err = os.OpenFile(dataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+		file, err = os.OpenFile(utils.DataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			fmt.Println("Error opening file:", err)
 			return nil
@@ -57,7 +60,7 @@ func dataFileById(id string) *os.File {
 	}
 	return file
 }
-func readDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
+func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
 
 	dataPoints := readBufferedDataPoints(id, startTime, endTime)
 	if len(dataPoints) == 0 {
@@ -145,7 +148,21 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	return dataPoints
 }
 
-func readLastDataPoints(id string, count int) ([]models.DataPoint, error) {
+func ReadLastDataPoints(id string, count int) []models.DataPoint {
+
+	dataPoints := readLastBufferedDataPoints(id, count)
+	if len(dataPoints) < count {
+		remaining := count - len(dataPoints)
+		lastDataPoints, err := readLastFiledDataPoints(id, remaining)
+		if err == nil {
+			dataPoints = append(dataPoints, lastDataPoints...)
+		}
+	}
+
+	return dataPoints
+}
+
+func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	file := dataFileById(id)
 	reader := bufio.NewReader(file)
 
@@ -287,7 +304,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 	return downsampled
 }
 
-func formatDataPoints(dataPoints []models.DataPoint) string {
+func FormatDataPoints(dataPoints []models.DataPoint) string {
 	var response string
 
 	for i, dp := range dataPoints {

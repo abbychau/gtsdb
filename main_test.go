@@ -12,8 +12,7 @@ import (
 // benchmark
 // go test -run=nonthingplease -bench BenchmarkMain -benchtime 10s
 func BenchmarkMain(b *testing.B) {
-	// os.RemoveAll("data")
-	// os.Mkdir("data", 0755)
+	clearData()
 
 	// Connect to the server
 	conn, err := net.Dial("tcp", ":5555")
@@ -29,7 +28,7 @@ func BenchmarkMain(b *testing.B) {
 		timestamp := startTimestamp + int64(i)
 		value1 := rand.Float64() * 100
 
-		name := fmt.Sprintf("sensor%d", (i*97)%100)
+		name := fmt.Sprintf("sensor%d", i%100)
 
 		// randomly select read or write
 		if i%2 == 0 {
@@ -40,14 +39,27 @@ func BenchmarkMain(b *testing.B) {
 			}
 
 		} else {
-			offset := rand.Int63n(100)
-			offset = min(offset, int64(i))
-			fmt.Fprintf(conn, "read,%s,%d,%d,%d\n", name, startTimestamp+offset, startTimestamp+offset+1000, 1) // read
+
+			// random 1/2 chance to read from the last
+			dice := rand.Intn(2)
+			if dice == 0 {
+				offset := rand.Int63n(100)
+				offset = min(offset, int64(i))
+				fmt.Fprintf(conn, "read,%s,%d,%d,%d\n", name, startTimestamp+offset, startTimestamp+offset+1000, 1) // random read
+			} else {
+				fmt.Fprintf(conn, "read,%s,%d,%d,%d\n", name, 0, 0, -1) // read from the last
+			}
 			response, _ := bufio.NewReader(conn).ReadString('\n')
 			if len(response) == 0 {
 				b.Error("Unexpected response when reading data points:", response)
 			}
 		}
+	}
 
+	// Test flushing data points
+	fmt.Fprintf(conn, "flush\n")
+	response, _ := bufio.NewReader(conn).ReadString('\n')
+	if response != "Data points flushed\n" {
+		b.Error("Unexpected response when flushing data points:", response)
 	}
 }

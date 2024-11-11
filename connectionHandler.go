@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"gtsdb/buffer"
 	models "gtsdb/models"
 	"math/rand"
 	"net"
@@ -20,7 +21,6 @@ func handleConnection(conn net.Conn) {
 	for scanner.Scan() {
 		message := scanner.Text()
 		parts := strings.Split(message, ",")
-
 		action := parts[0]
 		switch action {
 		case "subscribe":
@@ -35,7 +35,6 @@ func handleConnection(conn net.Conn) {
 				})
 			}
 			conn.Write([]byte("msg:Subscribed to " + parts[1] + "\n"))
-
 		case "unsubscribe":
 			for i, device := range subscribingDevices {
 				if device == parts[1] {
@@ -48,7 +47,6 @@ func handleConnection(conn net.Conn) {
 				fanoutManager.RemoveConsumer(id)
 			}
 			conn.Write([]byte("msg:Unsubscribed from " + parts[1] + "\n"))
-
 		case "write":
 			if len(parts) != 4 {
 				conn.Write([]byte("Invalid write format\n"))
@@ -59,17 +57,14 @@ func handleConnection(conn net.Conn) {
 			if tsErr != nil || timestamp <= 0 {
 				timestamp = time.Now().Unix()
 			}
-
 			value, _ := strconv.ParseFloat(parts[3], 64)
-
 			dataPoint := models.DataPoint{
 				ID:        id,
 				Timestamp: timestamp,
 				Value:     value,
 			}
-			storeDataPointBuffer(dataPoint)
+			buffer.StoreDataPointBuffer(dataPoint)
 			conn.Write([]byte("Data point stored\n"))
-
 		case "read":
 			if len(parts) < 5 {
 				conn.Write([]byte("Invalid read format\n"))
@@ -82,23 +77,19 @@ func handleConnection(conn net.Conn) {
 
 			var response string
 			if downsample < 0 {
-				lastDataPoints, err := readLastDataPoints(id, downsample*-1)
-				if err != nil {
-					response = "Error reading last data point\n"
-				} else {
-					response = formatDataPoints(lastDataPoints)
-				}
+				lastDataPoints := buffer.ReadLastDataPoints(id, downsample*-1)
+				response = buffer.FormatDataPoints(lastDataPoints)
 			} else {
 				aggregation := "avg"
 				if len(parts) == 6 {
 					aggregation = parts[5]
 				}
-				dataPoints := readDataPoints(id, startTime, endTime, downsample, aggregation)
-				response = formatDataPoints(dataPoints)
+				dataPoints := buffer.ReadDataPoints(id, startTime, endTime, downsample, aggregation)
+				response = buffer.FormatDataPoints(dataPoints)
 			}
 			conn.Write([]byte(response))
 		case "flush":
-			flushRemainingDataPoints()
+			buffer.FlushRemainingDataPoints()
 			conn.Write([]byte("Data points flushed\n"))
 
 		default:

@@ -1,7 +1,8 @@
-package main
+package buffer
 
 import (
 	models "gtsdb/models"
+	"gtsdb/utils"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,7 +93,7 @@ func TestFormatDataPoints(t *testing.T) {
 	}
 
 	expected := "test1,1,1.50|test1,2,2.50\n"
-	result := formatDataPoints(points)
+	result := FormatDataPoints(points)
 
 	if result != expected {
 		t.Errorf("Expected %s, got %s", expected, result)
@@ -104,7 +105,7 @@ func TestReadDataPoints(t *testing.T) {
 	defer cleanup()
 
 	// Set global data directory
-	dataDir = tmpDir
+	utils.DataDir = tmpDir
 
 	// Create test data file
 	id := "test1"
@@ -116,13 +117,13 @@ func TestReadDataPoints(t *testing.T) {
 	dataFile.WriteString(testData)
 
 	// Test reading with time range
-	points := readDataPoints(id, 1500, 2500, 1, "avg")
+	points := ReadDataPoints(id, 1500, 2500, 1, "avg")
 	if len(points) != 1 {
 		t.Errorf("Expected 1 point, got %d", len(points))
 	}
 
 	// Test with downsampling
-	points = readDataPoints(id, 1000, 3000, 2000, "avg")
+	points = ReadDataPoints(id, 1000, 3000, 2000, "avg")
 	if len(points) != 2 {
 		t.Errorf("Expected 2 points, got %d", len(points))
 	}

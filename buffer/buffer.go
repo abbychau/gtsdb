@@ -1,27 +1,34 @@
-package main
+package buffer
 
 import (
 	"fmt"
-	fanout "gtsdb/fanout"
 	models "gtsdb/models"
+	"gtsdb/utils"
 	"io"
 	"os"
 	"sync"
+	"time"
 )
 
 const indexInterval = 5000
 
-var dataDir = "data"
-
 const maxUnflushedDataPoints = 5000
 
-var fanoutManager = fanout.NewFanout()
 var dataFileHandles = make(map[string]*os.File)
 var indexFileHandles = make(map[string]*os.File)
 var metaFileHandles = make(map[string]*os.File)
 var ringBuffer = make(map[string][]models.DataPoint)
 var rwMutex = make(map[string]*sync.RWMutex)
 var lockForInit = &sync.Mutex{}
+var lastValue = make(map[string]float64)
+var lastTimestamp = make(map[string]int64)
+
+func StartPeriodicFlushWorker() {
+	for {
+		time.Sleep(5 * time.Second)
+		FlushRemainingDataPoints()
+	}
+}
 
 func initLock(id string) {
 	lockForInit.Lock()
@@ -31,7 +38,7 @@ func initLock(id string) {
 	}
 }
 
-func storeDataPointBuffer(dataPoint models.DataPoint) {
+func StoreDataPointBuffer(dataPoint models.DataPoint) {
 	initLock(dataPoint.ID)
 	rwMutex[dataPoint.ID].Lock()
 	defer rwMutex[dataPoint.ID].Unlock()
@@ -39,6 +46,8 @@ func storeDataPointBuffer(dataPoint models.DataPoint) {
 	if len(ringBuffer[dataPoint.ID]) >= maxUnflushedDataPoints {
 		go storeDataPointBufferToFile(dataPoint.ID)
 	}
+	lastValue[dataPoint.ID] = dataPoint.Value
+	lastTimestamp[dataPoint.ID] = dataPoint.Timestamp
 }
 
 func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint {
@@ -54,6 +63,20 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 
 	return result
 }
+func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
+	initLock(id)
+	rwMutex[id].RLock()
+	defer rwMutex[id].RUnlock()
+
+	if count == 1 {
+		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
+	}
+
+	if count > len(ringBuffer[id]) {
+		count = len(ringBuffer[id])
+	}
+	return ringBuffer[id][len(ringBuffer[id])-count:]
+}
 
 func storeDataPointBufferToFile(id string) {
 	initLock(id)
@@ -64,13 +87,12 @@ func storeDataPointBufferToFile(id string) {
 	storeDataPoints(id, dataPoints)
 }
 
-func flushRemainingDataPoints() {
-	for id, dataPoints := range ringBuffer {
-		if len(dataPoints) > 0 {
-			storeDataPoints(id, dataPoints)
-		}
+func FlushRemainingDataPoints() {
+	for id := range ringBuffer {
+		storeDataPointBufferToFile(id)
 	}
 }
+
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
@@ -99,7 +121,7 @@ func prepareFileHandles(fileName string, handleArray map[string]*os.File) *os.Fi
 	file, ok := handleArray[fileName]
 	if !ok {
 		var err error
-		file, err = os.OpenFile(dataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+		file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			panic(err)
 		}
