@@ -30,7 +30,7 @@ func readMetaCount(metaFile *os.File) int {
 func writeMetaCount(metaFile *os.File, count int) {
 	_, err := metaFile.Seek(0, io.SeekStart)
 	if err != nil {
-		fmt.Println("Error seeking meta file:", err)
+		utils.Error("Error seeking meta file:", err)
 		return
 	}
 
@@ -44,19 +44,16 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 }
 func dataFileById(id string) *os.File {
 	filename := id + ".aof"
-	initLock(filename)
-	rwMutex[filename].RLock()
-	defer rwMutex[filename].RUnlock()
 
-	file, ok := dataFileHandles[filename]
+	file, ok := dataFileHandles.Get(filename)
 	if !ok {
 		var err error
 		file, err = os.OpenFile(utils.DataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
-			fmt.Println("Error opening file:", err)
+			utils.Error("Error opening file:", err)
 			return nil
 		}
-		dataFileHandles[filename] = file
+		dataFileHandles.Set(filename, file)
 	}
 	return file
 }
@@ -80,14 +77,14 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	reader := bufio.NewReader(file)
 
 	indexFilename := id + ".idx"
-	indexFile, ok := indexFileHandles[indexFilename]
+	indexFile, ok := indexFileHandles.Get(indexFilename)
 	if ok {
 		indexReader := bufio.NewReader(indexFile)
 		var offset int64
 
 		_, err := indexFile.Seek(0, io.SeekStart)
 		if err != nil {
-			fmt.Println("Error seeking index file:", err)
+			utils.Error("Error seeking index file:", err)
 			return nil
 		}
 
@@ -107,13 +104,13 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 
 		_, err = file.Seek(offset, io.SeekStart)
 		if err != nil {
-			fmt.Println("Error seeking data file:", err)
+			utils.Error("Error seeking data file:", err)
 			return nil
 		}
 	} else {
 		_, err := file.Seek(0, io.SeekStart)
 		if err != nil {
-			fmt.Println("Error seeking data file:", err)
+			utils.Error("Error seeking data file:", err)
 			return nil
 		}
 	}
@@ -124,7 +121,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 			if err == io.EOF {
 				break
 			}
-			fmt.Println("Error reading file:", err)
+			utils.Error("Error reading file:", err)
 			return nil
 		}
 

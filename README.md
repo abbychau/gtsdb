@@ -63,6 +63,32 @@ PASS
 ok      gtsdb   12.466s
 ```
 
+```
+Concurrent Hashmap:
+goos: windows
+goarch: amd64
+pkg: gtsdb/concurrent
+cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
+BenchmarkHashMap/Put-24                 183019280               30.02 ns/op          4 B/op           1 allocs/op
+BenchmarkHashMap/Get-24                 324753310               16.90 ns/op          0 B/op           0 allocs/op
+BenchmarkHashMap/ConcurrentPut-24               80749353                98.81 ns/op           4 B/op          0 allocs/op      
+BenchmarkHashMap/ConcurrentGet-24               179749784               33.26 ns/op           0 B/op          0 allocs/op      
+BenchmarkHashMap/MixedReadWrite-24              100000000               53.98 ns/op           1 B/op          0 allocs/op      
+PASS
+ok      gtsdb/concurrent        36.492s
+```
+
+```
+Concurrent Set:
+goos: windows
+goarch: amd64
+pkg: gtsdb/concurrent
+cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
+BenchmarkSet_ConcurrentAdd-24           30328042               343.5 ns/op            98 B/op          1 allocs/op
+PASS
+ok      gtsdb/concurrent        10.840s
+```
+
 Explanation:
 - This benchmark does 50% read and 50% write operations to 100 different keys(devices).
 - It performs 249386 operations in 22.267 seconds. The operations include read and write operations.
