@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"gtsdb/models"
 	"gtsdb/utils"
@@ -50,7 +51,7 @@ func dataFileById(id string) *os.File {
 		var err error
 		file, err = os.OpenFile(utils.DataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
-			utils.Error("Error opening file:", err)
+			utils.Error("Error opening file: %v", err)
 			return nil
 		}
 		dataFileHandles.Set(filename, file)
@@ -84,7 +85,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 
 		_, err := indexFile.Seek(0, io.SeekStart)
 		if err != nil {
-			utils.Error("Error seeking index file:", err)
+			utils.Error("Error seeking index file: %v", err)
 			return nil
 		}
 
@@ -104,13 +105,13 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 
 		_, err = file.Seek(offset, io.SeekStart)
 		if err != nil {
-			utils.Error("Error seeking data file:", err)
+			utils.Error("Error seeking data file: %v", err)
 			return nil
 		}
 	} else {
 		_, err := file.Seek(0, io.SeekStart)
 		if err != nil {
-			utils.Error("Error seeking data file:", err)
+			utils.Error("Error seeking data file: %v", err)
 			return nil
 		}
 	}
@@ -121,7 +122,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 			if err == io.EOF {
 				break
 			}
-			utils.Error("Error reading file:", err)
+			utils.Error("Error reading file: %v", err)
 			return nil
 		}
 
@@ -148,9 +149,14 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 func ReadLastDataPoints(id string, count int) []models.DataPoint {
 
 	dataPoints := readLastBufferedDataPoints(id, count)
+	fmt.Println("dataPoints", dataPoints)
+	fmt.Println("Count", count)
 	if len(dataPoints) < count {
+
 		remaining := count - len(dataPoints)
+		fmt.Println("remaining", remaining)
 		lastDataPoints, err := readLastFiledDataPoints(id, remaining)
+		fmt.Println("lastDataPoints", lastDataPoints)
 		if err == nil {
 			dataPoints = append(dataPoints, lastDataPoints...)
 		}
@@ -163,49 +169,37 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	file := dataFileById(id)
 	reader := bufio.NewReader(file)
 
-	// Seek from the end of the file
-	_, err := file.Seek(0, io.SeekEnd)
+	//seek the last x bytes using offset
+	// line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
+	// 26 * count
+	_, err := file.Seek(int64(-26*count), io.SeekEnd)
 	if err != nil {
-		return nil, err
+		//if the file is smaller than the offset, seek to the beginning
+		file.Seek(0, io.SeekStart)
 	}
 
 	var dataPoints []models.DataPoint
-	var line string
-
-	// Read lines from the end until we have the required count
-	for count > 0 {
-		// Move back one byte to read the previous character
-		_, err = file.Seek(-2, io.SeekCurrent)
+	for {
+		line, err := reader.ReadString('\n')
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			utils.Error("Error reading file: %v", err)
 			return nil, err
 		}
 
-		// Read the character
-		char, err := reader.ReadByte()
-		if err != nil {
-			return nil, err
-		}
+		parts := strings.Split(strings.TrimSpace(line), ",")
+		trimmedTimestamp := strings.TrimSpace(parts[0])
+		timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
+		trimmedValue := strings.TrimSpace(parts[1])
+		value, _ := strconv.ParseFloat(trimmedValue, 64)
 
-		// If we find a newline, we have a complete line
-		if char == '\n' {
-			line, err = reader.ReadString('\n')
-			if err != nil {
-				return nil, err
-			}
-
-			parts := strings.Split(strings.TrimSpace(line), ",")
-			timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
-			value, _ := strconv.ParseFloat(parts[1], 64)
-
-			dataPoint := models.DataPoint{
-				ID:        id,
-				Timestamp: timestamp,
-				Value:     value,
-			}
-
-			dataPoints = append([]models.DataPoint{dataPoint}, dataPoints...)
-			count--
-		}
+		dataPoints = append(dataPoints, models.DataPoint{
+			ID:        id,
+			Timestamp: timestamp,
+			Value:     value,
+		})
 	}
 
 	return dataPoints, nil
@@ -313,5 +307,14 @@ func FormatDataPoints(dataPoints []models.DataPoint) string {
 
 	response += "\n"
 
+	return response
+}
+
+// JsonFormatDataPoints
+func JsonFormatDataPoints(dataPoints []models.DataPoint) string {
+	var response string
+	//use json marshal to format the data points
+	bytes, _ := json.Marshal(dataPoints)
+	response = string(bytes)
 	return response
 }

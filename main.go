@@ -6,6 +6,7 @@ import (
 	"gtsdb/fanout"
 	"gtsdb/utils"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"time"
@@ -13,7 +14,10 @@ import (
 
 var fanoutManager = fanout.NewFanout()
 
-const listenAddr = ":5555"
+const (
+	tcpListenAddr  = ":5555"
+	httpListenAddr = ":5556"
+)
 
 func main() {
 	utils.Log("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
@@ -24,26 +28,30 @@ func main() {
 	utils.InitDataDirectory()
 	fanoutManager.Start() //this will start 2 go routines in the background
 
+	// Start both TCP and HTTP servers
+	go startTCPServer()
+	go startHTTPServer()
+
+	// Wait for interrupt signal
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-	go func() {
-		// graceful shutdown callback
-		for range c {
-			utils.Log("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
-			buffer.FlushRemainingDataPoints()
-			utils.Log("安全放好食物回家了啦！拜拜！下次來玩喔！")
-			os.Exit(0)
-		}
-	}()
+	<-c
 
-	listener, err := net.Listen("tcp", listenAddr)
+	utils.Log("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
+	buffer.FlushRemainingDataPoints()
+	utils.Log("安全放好食物回家了啦！拜拜！下次來玩喔！")
+	os.Exit(0)
+}
+
+func startTCPServer() {
+	listener, err := net.Listen("tcp", tcpListenAddr)
 	if err != nil {
 		fmt.Println("Error listening:", err)
 		os.Exit(1)
 	}
 	defer listener.Close()
 
-	utils.Log("👂 用心監聽 " + listenAddr)
+	utils.Log("👂 用心監聽 TCP " + tcpListenAddr)
 
 	for {
 		conn, err := listener.Accept()
@@ -51,7 +59,11 @@ func main() {
 			fmt.Println("Error accepting connection:", err)
 			continue
 		}
-
 		go handleConnection(conn)
 	}
+}
+
+func startHTTPServer() {
+	utils.Log("👂 用心監聽 HTTP " + httpListenAddr)
+	http.ListenAndServe(httpListenAddr, setupHTTPRoutes())
 }

@@ -39,18 +39,9 @@ unsubscribe,sensor1
 
 ## Performance
 
-[Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
+### Database Performance
 
-```
-Version: 2024 06 06
-goos: windows
-goarch: amd64
-pkg: gtsdb
-cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24          249386             47291 ns/op
-PASS
-ok      gtsdb   22.267s
-```
+[Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
 
 ```
 Version: 2024 11 11
@@ -63,35 +54,34 @@ PASS
 ok      gtsdb   12.466s
 ```
 
-```
-Concurrent Hashmap:
-goos: windows
-goarch: amd64
-pkg: gtsdb/concurrent
-cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkHashMap/Put-24                 183019280               30.02 ns/op          4 B/op           1 allocs/op
-BenchmarkHashMap/Get-24                 324753310               16.90 ns/op          0 B/op           0 allocs/op
-BenchmarkHashMap/ConcurrentPut-24               80749353                98.81 ns/op           4 B/op          0 allocs/op      
-BenchmarkHashMap/ConcurrentGet-24               179749784               33.26 ns/op           0 B/op          0 allocs/op      
-BenchmarkHashMap/MixedReadWrite-24              100000000               53.98 ns/op           1 B/op          0 allocs/op      
-PASS
-ok      gtsdb/concurrent        36.492s
-```
-
-```
-Concurrent Set:
-goos: windows
-goarch: amd64
-pkg: gtsdb/concurrent
-cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkSet_ConcurrentAdd-24           30328042               343.5 ns/op            98 B/op          1 allocs/op
-PASS
-ok      gtsdb/concurrent        10.840s
-```
 
 Explanation:
 - This benchmark does 50% read and 50% write operations to 100 different keys(devices).
 - It performs 249386 operations in 22.267 seconds. The operations include read and write operations.
+
+
+### Concurrent Internals Performance
+
+- Run: `go test -benchmem -run=^$ -bench ^Bench gtsdb/concurrent -benchtime=5s`
+
+```
+goos: windows
+goarch: amd64
+pkg: gtsdb/concurrent
+cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
+BenchmarkHashMap/Put-24                 183965112               30.11 ns/op            4 B/op          1 allocs/op
+BenchmarkHashMap/Get-24                 325839816               17.06 ns/op            0 B/op          0 allocs/op
+BenchmarkHashMap/ConcurrentPut-24               76154018               101.0 ns/op             4 B/op          0 allocs/op
+BenchmarkHashMap/ConcurrentGet-24               179002152               33.92 ns/op            0 B/op          0 allocs/op
+BenchmarkHashMap/MixedReadWrite-24              100000000               56.78 ns/op            1 B/op          0 allocs/op
+BenchmarkSet_Add-24                             83288680               135.5 ns/op            38 B/op          0 allocs/op
+BenchmarkSet_Contains-24                        481914471               12.54 ns/op            0 B/op          0 allocs/op
+BenchmarkSet_ConcurrentAdd-24                   43283078               163.3 ns/op            37 B/op          0 allocs/op
+PASS
+ok      gtsdb/concurrent        62.763s
+```
+
+
 
 ## Done/Todo/Feature list
 
@@ -99,9 +89,9 @@ Explanation:
 - [x] Downsampling data
 - [x] TCP Server
 - [x] Tests
-- [ ] HTTP Server (REST API)
+- [x] HTTP Server (REST API)
 - [x] More Downsampling options(like sum, min, max, etc.)
-- [ ] Do errcheck Handling
+- [x] Do errcheck Handling
 - [x] Subscription and then streaming (cmd: `subscribe,sensor1`, `unsubscribe,sensor1`)
 - [x] Buffering data in memory before writing to disk, this is to serve recent data faster and enhance write performance
 - [x] 80% test coverage ([Report](./docs/coverage.html))

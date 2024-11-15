@@ -56,12 +56,15 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 }
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 
-	if count == 1 {
+	if count == 1 && lastTimestamp[id] != 0 {
 		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
 	}
 	var dataPointBuffer = ringBuffer.AssertGet(id)
 	if count > len(dataPointBuffer) {
 		count = len(dataPointBuffer)
+	}
+	if count == 0 {
+		return []models.DataPoint{}
 	}
 	return dataPointBuffer[len(dataPointBuffer)-count:]
 }
@@ -85,7 +88,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
 
-		line := fmt.Sprintf("%d,%.2f\n", dataPoint.Timestamp, dataPoint.Value)
+		line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
 		dataFile.WriteString(line)
 		count := readMetaCount(metaFile)
 		count++
@@ -107,7 +110,8 @@ func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string,
 	file, ok := handleArray.Get(fileName)
 	if !ok {
 		var err error
-		file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE|os.O_SYNC, 0644)
+		file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+
 		if err != nil {
 			panic(err)
 		}
