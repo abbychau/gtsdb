@@ -14,7 +14,6 @@ import (
 var fanoutManager = fanout.NewFanout()
 
 const listenAddr = ":5555"
-const dataDir = "data"
 
 func main() {
 	utils.Log("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
@@ -22,7 +21,7 @@ func main() {
 	utils.Log("🏃跑🏃跑跑跑🏃 🐹")
 	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
-	utils.InitDataDirectory(dataDir)
+	utils.InitDataDirectory()
 	fanoutManager.Start() //this will start 2 go routines in the background
 
 	c := make(chan os.Signal, 1)
