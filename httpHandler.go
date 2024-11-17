@@ -89,6 +89,10 @@ func setupHTTPRoutes() http.Handler {
 				if last == 0 {
 					last = 1
 				}
+				if last < 0 {
+					last = last * -1
+				}
+
 				lastDataPoints := buffer.ReadLastDataPoints(op.Read.ID, last)
 				response = lastDataPoints
 			} else {

@@ -20,9 +20,9 @@ const (
 )
 
 func main() {
-	utils.Log("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
-	utils.Log("🎶吱吱🎶吱吱🎶 🐹")
-	utils.Log("🏃跑🏃跑跑跑🏃 🐹")
+	utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
+	utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
+	utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
 	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
 	utils.InitDataDirectory()
@@ -37,9 +37,9 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	<-c
 
-	utils.Log("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
+	utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
 	buffer.FlushRemainingDataPoints()
-	utils.Log("安全放好食物回家了啦！拜拜！下次來玩喔！")
+	utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
 	os.Exit(0)
 }
 
@@ -51,7 +51,7 @@ func startTCPServer() {
 	}
 	defer listener.Close()
 
-	utils.Log("👂 用心監聽 TCP " + tcpListenAddr)
+	utils.Logln("👂 用心監聽 TCP " + tcpListenAddr)
 
 	for {
 		conn, err := listener.Accept()

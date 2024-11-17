@@ -57,15 +57,27 @@
 				
 				<option value="file0">gtsdb/adapters/gtsdbDriver.go (0.0%)</option>
 				
-				<option value="file1">gtsdb/buffer.go (78.4%)</option>
+				<option value="file1">gtsdb/buffer/buffer.go (3.2%)</option>
 				
-				<option value="file2">gtsdb/connectionHandler.go (84.5%)</option>
+				<option value="file2">gtsdb/buffer/engine.go (53.6%)</option>
 				
-				<option value="file3">gtsdb/engine.go (56.4%)</option>
+				<option value="file3">gtsdb/concurrent/hashmap.go (71.4%)</option>
 				
-				<option value="file4">gtsdb/fanout/fanout.go (61.9%)</option>
+				<option value="file4">gtsdb/concurrent/lru.go (100.0%)</option>
 				
-				<option value="file5">gtsdb/main.go (0.0%)</option>
+				<option value="file5">gtsdb/concurrent/set.go (91.3%)</option>
+				
+				<option value="file6">gtsdb/fanout/fanout.go (61.9%)</option>
+				
+				<option value="file7">gtsdb/httpHandler.go (0.0%)</option>
+				
+				<option value="file8">gtsdb/main.go (0.0%)</option>
+				
+				<option value="file9">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
+				
+				<option value="file10">gtsdb/tcpHandler.go (87.5%)</option>
+				
+				<option value="file11">gtsdb/utils/utils.go (57.1%)</option>
 				
 				</select>
 			</div>
@@ -281,86 +293,99 @@ func parseQueryResponse(response string) ([]QueryResult, error) <span class="cov
 }
 </pre>
 		
-		<pre class="file" id="file1" style="display: none">package main
+		<pre class="file" id="file1" style="display: none">package buffer
 
 import (
         "fmt"
-        fanout "gtsdb/fanout"
-        models "gtsdb/models"
+        "gtsdb/concurrent"
+        "gtsdb/models"
+        "gtsdb/synchronous"
+        "gtsdb/utils"
         "io"
         "os"
-        "sync"
 )
 
 const indexInterval = 5000
 
-var dataDir = "data"
+const maxUnflushedDataPoints = 0
 
-const maxUnflushedDataPoints = 5000
+var dataFileHandles = concurrent.NewHashMap[string, *os.File]()
+var indexFileHandles = concurrent.NewHashMap[string, *os.File]()
+var metaFileHandles = concurrent.NewHashMap[string, *os.File]()
+var idToRingBufferMap = concurrent.NewHashMap[string, *synchronous.RingBuffer[models.DataPoint]]()
 
-var fanoutManager = fanout.NewFanout()
-var dataFileHandles = make(map[string]*os.File)
-var indexFileHandles = make(map[string]*os.File)
-var metaFileHandles = make(map[string]*os.File)
-var ringBuffer = make(map[string][]models.DataPoint)
-var rwMutex = make(map[string]*sync.RWMutex)
-var lockForInit = &amp;sync.Mutex{}
+var lastValue = make(map[string]float64)
+var lastTimestamp = make(map[string]int64)
 
-func initLock(id string) <span class="cov8" title="1">{
-        lockForInit.Lock()
-        defer lockForInit.Unlock()
-        if _, ok := rwMutex[id]; !ok </span><span class="cov8" title="1">{
-                rwMutex[id] = &amp;sync.RWMutex{}
+func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov0" title="0">{
+        if maxUnflushedDataPoints == 0 </span><span class="cov0" title="0">{
+                storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+                return
         }</span>
-}
 
-func storeDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
-        initLock(dataPoint.ID)
-        rwMutex[dataPoint.ID].Lock()
-        defer rwMutex[dataPoint.ID].Unlock()
-        ringBuffer[dataPoint.ID] = append(ringBuffer[dataPoint.ID], dataPoint)
-        if len(ringBuffer[dataPoint.ID]) &gt;= maxUnflushedDataPoints </span><span class="cov0" title="0">{
-                go storeDataPointBufferToFile(dataPoint.ID)
+        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Get(dataPoint.ID)
+        if !ok </span><span class="cov0" title="0">{
+                rb = synchronous.NewRingBuffer[models.DataPoint](maxUnflushedDataPoints)
+                idToRingBufferMap.Set(dataPoint.ID, rb)
         }</span>
+        <span class="cov0" title="0">rb.Push(dataPoint)
+
+        storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+        lastValue[dataPoint.ID] = dataPoint.Value
+        lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
 }
 
 func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
-        initLock(id)
-        rwMutex[id].RLock()
-        defer rwMutex[id].RUnlock()
-        var result []models.DataPoint
-        for _, dataPoint := range ringBuffer[id] </span><span class="cov8" title="1">{
-                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
+        if maxUnflushedDataPoints == 0 </span><span class="cov8" title="1">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov0" title="0">var result []models.DataPoint
+        for i := 0; i &lt; rb.Size(); i++ </span><span class="cov0" title="0">{
+                dataPoint := rb.Get(i)
+                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov0" title="0">{
                         result = append(result, dataPoint)
                 }</span>
         }
-
-        <span class="cov8" title="1">return result</span>
+        <span class="cov0" title="0">return result</span>
 }
 
-func storeDataPointBufferToFile(id string) <span class="cov0" title="0">{
-        initLock(id)
-        rwMutex[id].Lock()
-        defer rwMutex[id].Unlock()
-        dataPoints := ringBuffer[id]
-        ringBuffer[id] = nil
-        storeDataPoints(id, dataPoints)
-}</span>
+func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov0" title="0">{
+        if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
+        }</span>
 
-func flushRemainingDataPoints() <span class="cov8" title="1">{
-        for id, dataPoints := range ringBuffer </span><span class="cov8" title="1">{
-                if len(dataPoints) &gt; 0 </span><span class="cov8" title="1">{
-                        storeDataPoints(id, dataPoints)
-                }</span>
-        }
+        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov0" title="0">if count &gt; rb.Size() </span><span class="cov0" title="0">{
+                count = rb.Size()
+        }</span>
+        <span class="cov0" title="0">if count == 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov0" title="0">result := make([]models.DataPoint, count)
+        for i := 0; i &lt; count; i++ </span><span class="cov0" title="0">{
+                result[i] = rb.Get(rb.Size() - count + i)
+        }</span>
+        <span class="cov0" title="0">return result</span>
 }
-func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
+
+func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov0" title="0">{
         dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
         metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
         indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
-        for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
+        for _, dataPoint := range dataPoints </span><span class="cov0" title="0">{
 
-                line := fmt.Sprintf("%d,%.2f\n", dataPoint.Timestamp, dataPoint.Value)
+                line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
                 dataFile.WriteString(line)
                 count := readMetaCount(metaFile)
                 count++
@@ -374,140 +399,46 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span cl
                         updateIndexFile(indexFile, dataPoint.Timestamp, offset)
                 }</span>
         }
+
 }
-func prepareFileHandles(fileName string, handleArray map[string]*os.File) *os.File <span class="cov8" title="1">{
-        initLock(fileName)
-        rwMutex[fileName].Lock()
-        defer rwMutex[fileName].Unlock()
-        file, ok := handleArray[fileName]
-        if !ok </span><span class="cov8" title="1">{
+func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File <span class="cov0" title="0">{
+
+        file, ok := handleArray.Get(fileName)
+        if !ok </span><span class="cov0" title="0">{
                 var err error
-                file, err = os.OpenFile(dataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+                file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+
                 if err != nil </span><span class="cov0" title="0">{
                         panic(err)</span>
                 }
-                <span class="cov8" title="1">handleArray[fileName] = file</span>
+                <span class="cov0" title="0">handleArray.Set(fileName, file)</span>
         }
-        <span class="cov8" title="1">return file</span>
+        <span class="cov0" title="0">return file</span>
+}
+
+func FlushRemainingDataPoints() <span class="cov0" title="0">{
+
+        //fsync all file handles
+        for _, file := range dataFileHandles.Values() </span><span class="cov0" title="0">{
+                file.Sync()
+        }</span>
+        <span class="cov0" title="0">for _, file := range metaFileHandles.Values() </span><span class="cov0" title="0">{
+                file.Sync()
+        }</span>
+        <span class="cov0" title="0">for _, file := range indexFileHandles.Values() </span><span class="cov0" title="0">{
+                file.Sync()
+        }</span>
 }
 </pre>
 		
-		<pre class="file" id="file2" style="display: none">package main
+		<pre class="file" id="file2" style="display: none">package buffer
 
 import (
         "bufio"
+        "encoding/json"
         "fmt"
-        models "gtsdb/models"
-        "math/rand"
-        "net"
-        "slices"
-        "strconv"
-        "strings"
-        "time"
-)
-
-func handleConnection(conn net.Conn) <span class="cov8" title="1">{
-        defer conn.Close()
-        id := rand.Intn(1000) + int(time.Now().UnixNano())
-        scanner := bufio.NewScanner(conn)
-        subscribingDevices := []string{}
-        for scanner.Scan() </span><span class="cov8" title="1">{
-                message := scanner.Text()
-                parts := strings.Split(message, ",")
-
-                action := parts[0]
-                switch action </span>{
-                case "subscribe":<span class="cov8" title="1">
-                        subscribingDevices = append(subscribingDevices, parts[1])
-                        if len(subscribingDevices) == 1 </span><span class="cov8" title="1">{ // First subscription
-                                fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
-                                fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
-                                        fmt.Println("Received message:", msg)
-                                        if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
-                                                conn.Write([]byte(fmt.Sprintf("%v\n", msg)))
-                                        }</span>
-                                })
-                        }
-                        <span class="cov8" title="1">conn.Write([]byte("msg:Subscribed to " + parts[1] + "\n"))</span>
-
-                case "unsubscribe":<span class="cov8" title="1">
-                        for i, device := range subscribingDevices </span><span class="cov8" title="1">{
-                                if device == parts[1] </span><span class="cov8" title="1">{
-                                        subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
-                                        break</span>
-                                }
-                        }
-                        <span class="cov8" title="1">if len(subscribingDevices) == 0 </span><span class="cov8" title="1">{
-                                fmt.Printf("Removing consumer %d\n", id)
-                                fanoutManager.RemoveConsumer(id)
-                        }</span>
-                        <span class="cov8" title="1">conn.Write([]byte("msg:Unsubscribed from " + parts[1] + "\n"))</span>
-
-                case "write":<span class="cov8" title="1">
-                        if len(parts) != 4 </span><span class="cov8" title="1">{
-                                conn.Write([]byte("Invalid write format\n"))
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">id := parts[1]
-                        timestamp, tsErr := strconv.ParseInt(parts[2], 10, 64)
-                        if tsErr != nil || timestamp &lt;= 0 </span><span class="cov0" title="0">{
-                                timestamp = time.Now().Unix()
-                        }</span>
-
-                        <span class="cov8" title="1">value, _ := strconv.ParseFloat(parts[3], 64)
-
-                        dataPoint := models.DataPoint{
-                                ID:        id,
-                                Timestamp: timestamp,
-                                Value:     value,
-                        }
-                        storeDataPointBuffer(dataPoint)
-                        conn.Write([]byte("Data point stored\n"))</span>
-
-                case "read":<span class="cov8" title="1">
-                        if len(parts) &lt; 5 </span><span class="cov8" title="1">{
-                                conn.Write([]byte("Invalid read format\n"))
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">id := parts[1]
-                        startTime, _ := strconv.ParseInt(parts[2], 10, 64)
-                        endTime, _ := strconv.ParseInt(parts[3], 10, 64)
-                        downsample, _ := strconv.Atoi(parts[4])
-
-                        var response string
-                        if downsample &lt; 0 </span><span class="cov0" title="0">{
-                                lastDataPoints, err := readLastDataPoints(id, downsample*-1)
-                                if err != nil </span><span class="cov0" title="0">{
-                                        response = "Error reading last data point\n"
-                                }</span> else<span class="cov0" title="0"> {
-                                        response = formatDataPoints(lastDataPoints)
-                                }</span>
-                        } else<span class="cov8" title="1"> {
-                                aggregation := "avg"
-                                if len(parts) == 6 </span><span class="cov0" title="0">{
-                                        aggregation = parts[5]
-                                }</span>
-                                <span class="cov8" title="1">dataPoints := readDataPoints(id, startTime, endTime, downsample, aggregation)
-                                response = formatDataPoints(dataPoints)</span>
-                        }
-                        <span class="cov8" title="1">conn.Write([]byte(response))</span>
-                case "flush":<span class="cov8" title="1">
-                        flushRemainingDataPoints()
-                        conn.Write([]byte("Data points flushed\n"))</span>
-
-                default:<span class="cov8" title="1">
-                        conn.Write([]byte("Invalid action\n"))</span>
-                }
-        }
-}
-</pre>
-		
-		<pre class="file" id="file3" style="display: none">package main
-
-import (
-        "bufio"
-        "fmt"
-        models "gtsdb/models"
+        "gtsdb/models"
+        "gtsdb/utils"
         "io"
         "os"
         "strconv"
@@ -527,18 +458,20 @@ func readMetaCount(metaFile *os.File) int <span class="cov8" title="1">{
                 return count
         }</span>
 
-        <span class="cov8" title="1">return 0</span>
+        <span class="cov0" title="0">return 0</span>
 }
 
 func writeMetaCount(metaFile *os.File, count int) <span class="cov8" title="1">{
         _, err := metaFile.Seek(0, io.SeekStart)
         if err != nil </span><span class="cov0" title="0">{
-                fmt.Println("Error seeking meta file:", err)
+                utils.Errorln("Error seeking meta file:", err)
                 return
         }</span>
-
-        <span class="cov8" title="1">metaFile.Truncate(0)
-        metaFile.WriteString(fmt.Sprintf("count:%d\n", count))</span>
+        <span class="cov8" title="1">str := fmt.Sprintf("count:%d\n", count)
+        //empty the file
+        metaFile.Truncate(0)
+        metaFile.Seek(0, io.SeekStart)
+        metaFile.WriteString(str)</span>
 }
 
 func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span class="cov0" title="0">{
@@ -547,19 +480,20 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span cl
 }</span>
 func dataFileById(id string) *os.File <span class="cov8" title="1">{
         filename := id + ".aof"
-        file, ok := dataFileHandles[filename]
+
+        file, ok := dataFileHandles.Get(filename)
         if !ok </span><span class="cov8" title="1">{
                 var err error
-                file, err = os.OpenFile(dataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+                file, err = os.OpenFile(utils.DataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
                 if err != nil </span><span class="cov0" title="0">{
-                        fmt.Println("Error opening file:", err)
+                        utils.Error("Error opening file: %v", err)
                         return nil
                 }</span>
-                <span class="cov8" title="1">dataFileHandles[filename] = file</span>
+                <span class="cov8" title="1">dataFileHandles.Set(filename, file)</span>
         }
         <span class="cov8" title="1">return file</span>
 }
-func readDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
+func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
 
         dataPoints := readBufferedDataPoints(id, startTime, endTime)
         if len(dataPoints) == 0 </span><span class="cov8" title="1">{
@@ -579,14 +513,14 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
         reader := bufio.NewReader(file)
 
         indexFilename := id + ".idx"
-        indexFile, ok := indexFileHandles[indexFilename]
+        indexFile, ok := indexFileHandles.Get(indexFilename)
         if ok </span><span class="cov0" title="0">{
                 indexReader := bufio.NewReader(indexFile)
                 var offset int64
 
                 _, err := indexFile.Seek(0, io.SeekStart)
                 if err != nil </span><span class="cov0" title="0">{
-                        fmt.Println("Error seeking index file:", err)
+                        utils.Error("Error seeking index file: %v", err)
                         return nil
                 }</span>
 
@@ -606,13 +540,13 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 
                 <span class="cov0" title="0">_, err = file.Seek(offset, io.SeekStart)
                 if err != nil </span><span class="cov0" title="0">{
-                        fmt.Println("Error seeking data file:", err)
+                        utils.Error("Error seeking data file: %v", err)
                         return nil
                 }</span>
         } else<span class="cov8" title="1"> {
                 _, err := file.Seek(0, io.SeekStart)
                 if err != nil </span><span class="cov0" title="0">{
-                        fmt.Println("Error seeking data file:", err)
+                        utils.Error("Error seeking data file: %v", err)
                         return nil
                 }</span>
         }
@@ -623,7 +557,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
                         if err == io.EOF </span><span class="cov8" title="1">{
                                 break</span>
                         }
-                        <span class="cov0" title="0">fmt.Println("Error reading file:", err)
+                        <span class="cov0" title="0">utils.Error("Error reading file: %v", err)
                         return nil</span>
                 }
 
@@ -647,53 +581,58 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
         <span class="cov8" title="1">return dataPoints</span>
 }
 
-func readLastDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov0" title="0">{
+func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="cov0" title="0">{
+
+        dataPoints := readLastBufferedDataPoints(id, count)
+        fmt.Println("dataPoints", dataPoints)
+        fmt.Println("Count", count)
+        if len(dataPoints) &lt; count </span><span class="cov0" title="0">{
+
+                remaining := count - len(dataPoints)
+                lastDataPoints, err := readLastFiledDataPoints(id, remaining)
+                if err == nil </span><span class="cov0" title="0">{
+                        dataPoints = append(dataPoints, lastDataPoints...)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return dataPoints</span>
+}
+
+func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov0" title="0">{
         file := dataFileById(id)
         reader := bufio.NewReader(file)
 
-        // Seek from the end of the file
-        _, err := file.Seek(0, io.SeekEnd)
+        //seek the last x bytes using offset
+        // line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
+        // 26 * count
+        _, err := file.Seek(int64(-26*count), io.SeekEnd)
         if err != nil </span><span class="cov0" title="0">{
-                return nil, err
+                //if the file is smaller than the offset, seek to the beginning
+                file.Seek(0, io.SeekStart)
         }</span>
 
         <span class="cov0" title="0">var dataPoints []models.DataPoint
-        var line string
-
-        // Read lines from the end until we have the required count
-        for count &gt; 0 </span><span class="cov0" title="0">{
-                // Move back one byte to read the previous character
-                _, err = file.Seek(-2, io.SeekCurrent)
+        for </span><span class="cov0" title="0">{
+                line, err := reader.ReadString('\n')
                 if err != nil </span><span class="cov0" title="0">{
-                        return nil, err
-                }</span>
-
-                // Read the character
-                <span class="cov0" title="0">char, err := reader.ReadByte()
-                if err != nil </span><span class="cov0" title="0">{
-                        return nil, err
-                }</span>
-
-                // If we find a newline, we have a complete line
-                <span class="cov0" title="0">if char == '\n' </span><span class="cov0" title="0">{
-                        line, err = reader.ReadString('\n')
-                        if err != nil </span><span class="cov0" title="0">{
-                                return nil, err
-                        }</span>
-
-                        <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
-                        timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
-                        value, _ := strconv.ParseFloat(parts[1], 64)
-
-                        dataPoint := models.DataPoint{
-                                ID:        id,
-                                Timestamp: timestamp,
-                                Value:     value,
+                        if err == io.EOF </span><span class="cov0" title="0">{
+                                break</span>
                         }
-
-                        dataPoints = append([]models.DataPoint{dataPoint}, dataPoints...)
-                        count--</span>
+                        <span class="cov0" title="0">utils.Error("Error reading file: %v", err)
+                        return nil, err</span>
                 }
+
+                <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
+                trimmedTimestamp := strings.TrimSpace(parts[0])
+                timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
+                trimmedValue := strings.TrimSpace(parts[1])
+                value, _ := strconv.ParseFloat(trimmedValue, 64)
+
+                dataPoints = append(dataPoints, models.DataPoint{
+                        ID:        id,
+                        Timestamp: timestamp,
+                        Value:     value,
+                })</span>
         }
 
         <span class="cov0" title="0">return dataPoints, nil</span>
@@ -789,7 +728,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
         <span class="cov8" title="1">return downsampled</span>
 }
 
-func formatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
+func FormatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
         var response string
 
         for i, dp := range dataPoints </span><span class="cov8" title="1">{
@@ -803,9 +742,316 @@ func formatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" t
 
         return response</span>
 }
+
+// JsonFormatDataPoints
+func JsonFormatDataPoints(dataPoints []models.DataPoint) string <span class="cov0" title="0">{
+        var response string
+        //use json marshal to format the data points
+        bytes, _ := json.Marshal(dataPoints)
+        response = string(bytes)
+        return response
+}</span>
 </pre>
 		
-		<pre class="file" id="file4" style="display: none">package fanout
+		<pre class="file" id="file3" style="display: none">package concurrent
+
+//🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹
+import "sync"
+
+// HashMap represents a thread-safe generic map structure
+type HashMap[K comparable, V any] struct {
+        sync.RWMutex
+        items map[K]V
+}
+
+// NewHashMap creates and initializes a new HashMap
+func NewHashMap[K comparable, V any]() *HashMap[K, V] <span class="cov8" title="1">{
+        return &amp;HashMap[K, V]{
+                items: make(map[K]V),
+        }
+}</span>
+
+// Put adds or updates an element in the map
+func (h *HashMap[K, V]) Put(key K, value V) <span class="cov8" title="1">{
+        h.Lock()
+        defer h.Unlock()
+        h.items[key] = value
+}</span>
+
+// Set (alias of Put)
+func (h *HashMap[K, V]) Set(key K, value V) <span class="cov0" title="0">{
+        h.Put(key, value)
+}</span>
+
+// Get retrieves an element from the map
+func (h *HashMap[K, V]) Get(key K) (V, bool) <span class="cov8" title="1">{
+        h.RLock()
+        defer h.RUnlock()
+        value, exists := h.items[key]
+        return value, exists
+}</span>
+
+func (h *HashMap[K, V]) AssertGet(key K) V <span class="cov0" title="0">{
+        h.RLock()
+        defer h.RUnlock()
+        return h.items[key]
+}</span>
+
+// Delete removes an element from the map
+func (h *HashMap[K, V]) Delete(key K) <span class="cov8" title="1">{
+        h.Lock()
+        defer h.Unlock()
+        delete(h.items, key)
+}</span>
+
+// Contains checks if a key exists in the map
+func (h *HashMap[K, V]) Contains(key K) bool <span class="cov8" title="1">{
+        h.RLock()
+        defer h.RUnlock()
+        _, exists := h.items[key]
+        return exists
+}</span>
+
+// Size returns the number of elements in the map
+func (h *HashMap[K, V]) Size() int <span class="cov8" title="1">{
+        h.RLock()
+        defer h.RUnlock()
+        return len(h.items)
+}</span>
+
+// Clear removes all elements from the map
+func (h *HashMap[K, V]) Clear() <span class="cov8" title="1">{
+        h.Lock()
+        defer h.Unlock()
+        h.items = make(map[K]V)
+}</span>
+
+// ForEach executes a function for each key-value pair in the map
+func (h *HashMap[K, V]) ForEach(fn func(key K, value V)) <span class="cov8" title="1">{
+        h.RLock()
+        defer h.RUnlock()
+        for k, v := range h.items </span><span class="cov8" title="1">{
+                fn(k, v)
+        }</span>
+}
+
+// Values
+func (h *HashMap[K, V]) Values() []V <span class="cov0" title="0">{
+        h.RLock()
+        defer h.RUnlock()
+        values := make([]V, 0, len(h.items))
+        for _, v := range h.items </span><span class="cov0" title="0">{
+                values = append(values, v)
+        }</span>
+        <span class="cov0" title="0">return values</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package concurrent
+
+import "sync"
+
+type Node[K comparable, V any] struct {
+        key        K
+        value      V
+        prev, next *Node[K, V]
+}
+
+type LRU[K comparable, V any] struct {
+        capacity int
+        cache    map[K]*Node[K, V]
+        head     *Node[K, V]
+        tail     *Node[K, V]
+        mutex    sync.Mutex
+}
+
+func NewLRU[K comparable, V any](capacity int) *LRU[K, V] <span class="cov8" title="1">{
+        return &amp;LRU[K, V]{
+                capacity: capacity,
+                cache:    make(map[K]*Node[K, V]),
+                head:     nil,
+                tail:     nil,
+                mutex:    sync.Mutex{},
+        }
+}</span>
+
+func (l *LRU[K, V]) Get(key K) (V, bool) <span class="cov8" title="1">{
+        l.mutex.Lock()
+        defer l.mutex.Unlock()
+
+        if node, exists := l.cache[key]; exists </span><span class="cov8" title="1">{
+                l.moveToFront(node)
+                return node.value, true
+        }</span>
+        <span class="cov8" title="1">var zero V
+        return zero, false</span>
+}
+
+func (l *LRU[K, V]) Put(key K, value V) <span class="cov8" title="1">{
+        l.mutex.Lock()
+        defer l.mutex.Unlock()
+
+        if node, exists := l.cache[key]; exists </span><span class="cov8" title="1">{
+                node.value = value
+                l.moveToFront(node)
+                return
+        }</span>
+
+        <span class="cov8" title="1">newNode := &amp;Node[K, V]{key: key, value: value}
+        l.cache[key] = newNode
+
+        if len(l.cache) == 1 </span><span class="cov8" title="1">{
+                l.head = newNode
+                l.tail = newNode
+        }</span> else<span class="cov8" title="1"> {
+                newNode.next = l.head
+                l.head.prev = newNode
+                l.head = newNode
+        }</span>
+
+        <span class="cov8" title="1">if len(l.cache) &gt; l.capacity </span><span class="cov8" title="1">{
+                delete(l.cache, l.tail.key)
+                l.tail = l.tail.prev
+                l.tail.next = nil
+        }</span>
+}
+
+func (l *LRU[K, V]) moveToFront(node *Node[K, V]) <span class="cov8" title="1">{
+        if node == l.head </span><span class="cov8" title="1">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">if node == l.tail </span><span class="cov8" title="1">{
+                l.tail = node.prev
+                l.tail.next = nil
+        }</span> else<span class="cov8" title="1"> {
+                node.prev.next = node.next
+                node.next.prev = node.prev
+        }</span>
+
+        <span class="cov8" title="1">node.prev = nil
+        node.next = l.head
+        l.head.prev = node
+        l.head = node</span>
+}
+
+func (l *LRU[K, V]) Len() int <span class="cov8" title="1">{
+        l.mutex.Lock()
+        defer l.mutex.Unlock()
+        return len(l.cache)
+}</span>
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package concurrent
+
+import (
+        "sync"
+)
+
+// Set represents a thread-safe set data structure
+type Set[T comparable] struct {
+        sync.RWMutex
+        items map[T]struct{}
+}
+
+// NewSet creates a new Set
+func NewSet[T comparable]() *Set[T] <span class="cov8" title="1">{
+        return &amp;Set[T]{
+                items: make(map[T]struct{}),
+        }
+}</span>
+
+// Add adds an item to the set
+func (s *Set[T]) Add(item T) <span class="cov8" title="1">{
+        s.Lock()
+        defer s.Unlock()
+        s.items[item] = struct{}{}
+}</span>
+
+// Remove removes an item from the set
+func (s *Set[T]) Remove(item T) <span class="cov8" title="1">{
+        s.Lock()
+        defer s.Unlock()
+        delete(s.items, item)
+}</span>
+
+// Contains checks if an item exists in the set
+func (s *Set[T]) Contains(item T) bool <span class="cov8" title="1">{
+        s.RLock()
+        defer s.RUnlock()
+        _, exists := s.items[item]
+        return exists
+}</span>
+
+// Size returns the number of items in the set
+func (s *Set[T]) Size() int <span class="cov8" title="1">{
+        s.RLock()
+        defer s.RUnlock()
+        return len(s.items)
+}</span>
+
+// Clear removes all items from the set
+func (s *Set[T]) Clear() <span class="cov8" title="1">{
+        s.Lock()
+        defer s.Unlock()
+        s.items = make(map[T]struct{})
+}</span>
+
+// Items returns a slice of all items in the set
+func (s *Set[T]) Items() []T <span class="cov8" title="1">{
+        s.RLock()
+        defer s.RUnlock()
+        items := make([]T, 0, len(s.items))
+        for item := range s.items </span><span class="cov8" title="1">{
+                items = append(items, item)
+        }</span>
+        <span class="cov8" title="1">return items</span>
+}
+
+func (s *Set[T]) ForEach(fn func(item T)) <span class="cov0" title="0">{
+        s.RLock()
+        defer s.RUnlock()
+        for item := range s.items </span><span class="cov0" title="0">{
+                fn(item)
+        }</span>
+}
+
+// Union returns a new set containing all elements from both sets
+func (s *Set[T]) Union(other *Set[T]) *Set[T] <span class="cov8" title="1">{
+        result := NewSet[T]()
+        s.RLock()
+        other.RLock()
+        defer s.RUnlock()
+        defer other.RUnlock()
+
+        for item := range s.items </span><span class="cov8" title="1">{
+                result.items[item] = struct{}{}
+        }</span>
+        <span class="cov8" title="1">for item := range other.items </span><span class="cov8" title="1">{
+                result.items[item] = struct{}{}
+        }</span>
+
+        <span class="cov8" title="1">return result</span>
+}
+
+// Intersection returns a new set containing elements present in both sets
+func (s *Set[T]) Intersection(other *Set[T]) *Set[T] <span class="cov8" title="1">{
+        result := NewSet[T]()
+        s.RLock()
+        other.RLock()
+        defer s.RUnlock()
+        defer other.RUnlock()
+
+        for item := range s.items </span><span class="cov8" title="1">{
+                if _, exists := other.items[item]; exists </span><span class="cov8" title="1">{
+                        result.items[item] = struct{}{}
+                }</span>
+        }
+        <span class="cov8" title="1">return result</span>
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package fanout
 
 import (
         models "gtsdb/models"
@@ -874,39 +1120,208 @@ func (f *Fanout) producer() <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file5" style="display: none">package main
+		<pre class="file" id="file7" style="display: none">package main
+
+import (
+        "encoding/json"
+        "fmt"
+        "gtsdb/buffer"
+        "gtsdb/models"
+        "net/http"
+        "time"
+)
+
+type WriteRequest struct {
+        ID        string  `json:"id"`
+        Value     float64 `json:"value"`
+        Timestamp int64   `json:"timestamp,omitempty"`
+}
+
+type ReadRequest struct {
+        ID          string `json:"id"`
+        StartTime   int64  `json:"startTime,omitempty"`
+        EndTime     int64  `json:"endTime,omitempty"`
+        Downsample  int    `json:"downsample,omitempty"`
+        LastX       int    `json:"lastx,omitempty"`
+        Aggregation string `json:"aggregation,omitempty"`
+}
+
+type Operation struct {
+        Operation string        `json:"operation"` // "write", "read", "flush", "subscribe"
+        Write     *WriteRequest `json:"write,omitempty"`
+        Read      *ReadRequest  `json:"read,omitempty"`
+        DeviceID  string        `json:"deviceId,omitempty"`
+}
+
+type Response struct {
+        Success bool        `json:"success"`
+        Message string      `json:"message,omitempty"`
+        Data    interface{} `json:"data,omitempty"`
+}
+
+func writeJSON(w http.ResponseWriter, response Response) <span class="cov0" title="0">{
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(response)
+}</span>
+
+func setupHTTPRoutes() http.Handler <span class="cov0" title="0">{
+        mux := http.NewServeMux()
+
+        mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
+                if r.Method != http.MethodPost </span><span class="cov0" title="0">{
+                        writeJSON(w, Response{Success: false, Message: "Method not allowed"})
+                        return
+                }</span>
+
+                <span class="cov0" title="0">var op Operation
+                if err := json.NewDecoder(r.Body).Decode(&amp;op); err != nil </span><span class="cov0" title="0">{
+                        writeJSON(w, Response{Success: false, Message: "Invalid request body"})
+                        return
+                }</span>
+
+                <span class="cov0" title="0">switch op.Operation </span>{
+                case "write":<span class="cov0" title="0">
+                        if op.Write == nil </span><span class="cov0" title="0">{
+                                writeJSON(w, Response{Success: false, Message: "Write data required"})
+                                return
+                        }</span>
+                        <span class="cov0" title="0">if op.Write.Timestamp &lt;= 0 </span><span class="cov0" title="0">{
+                                op.Write.Timestamp = time.Now().Unix()
+                        }</span>
+                        <span class="cov0" title="0">dataPoint := models.DataPoint{
+                                ID:        op.Write.ID,
+                                Timestamp: op.Write.Timestamp,
+                                Value:     op.Write.Value,
+                        }
+                        buffer.StoreDataPointBuffer(dataPoint)
+                        writeJSON(w, Response{Success: true, Message: "Data point stored"})</span>
+
+                case "read":<span class="cov0" title="0">
+                        if op.Read == nil </span><span class="cov0" title="0">{
+                                writeJSON(w, Response{Success: false, Message: "Read parameters required"})
+                                return
+                        }</span>
+                        <span class="cov0" title="0">if op.Read.Aggregation == "" </span><span class="cov0" title="0">{
+                                op.Read.Aggregation = "avg"
+                        }</span>
+
+                        <span class="cov0" title="0">var response []models.DataPoint
+                        if op.Read.LastX &gt; 0 || (op.Read.StartTime == 0 &amp;&amp; op.Read.EndTime == 0) </span><span class="cov0" title="0">{
+                                last := op.Read.LastX
+                                if last == 0 </span><span class="cov0" title="0">{
+                                        last = 1
+                                }</span>
+                                <span class="cov0" title="0">if last &lt; 0 </span><span class="cov0" title="0">{
+                                        last = last * -1
+                                }</span>
+
+                                <span class="cov0" title="0">lastDataPoints := buffer.ReadLastDataPoints(op.Read.ID, last)
+                                response = lastDataPoints</span>
+                        } else<span class="cov0" title="0"> {
+                                dataPoints := buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
+                                response = dataPoints
+                        }</span>
+                        <span class="cov0" title="0">writeJSON(w, Response{Success: true, Data: response})</span>
+
+                case "flush":<span class="cov0" title="0">
+                        buffer.FlushRemainingDataPoints()
+                        writeJSON(w, Response{Success: true, Message: "Data points flushed"})</span>
+
+                case "subscribe":<span class="cov0" title="0">
+                        if op.DeviceID == "" </span><span class="cov0" title="0">{
+                                writeJSON(w, Response{Success: false, Message: "Device ID required"})
+                                return
+                        }</span>
+                        <span class="cov0" title="0">handleSSE(w, op.DeviceID)</span>
+
+                default:<span class="cov0" title="0">
+                        writeJSON(w, Response{Success: false, Message: "Invalid operation"})</span>
+                }
+        })
+
+        <span class="cov0" title="0">return mux</span>
+}
+
+func handleSSE(w http.ResponseWriter, deviceID string) <span class="cov0" title="0">{
+        w.Header().Set("Content-Type", "text/event-stream")
+        w.Header().Set("Cache-Control", "no-cache")
+        w.Header().Set("Connection", "keep-alive")
+
+        flusher, ok := w.(http.Flusher)
+        if !ok </span><span class="cov0" title="0">{
+                http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+                return
+        }</span>
+
+        <span class="cov0" title="0">id := time.Now().UnixNano()
+        fanoutManager.AddConsumer(int(id), func(msg models.DataPoint) </span><span class="cov0" title="0">{
+                if msg.ID == deviceID </span><span class="cov0" title="0">{
+                        resp := Response{Success: true, Data: msg}
+                        jsonData, _ := json.Marshal(resp)
+                        fmt.Fprintf(w, "data: %s\n\n", jsonData)
+                        flusher.Flush()
+                }</span>
+        })
+
+        // Wait until connection is closed
+        <span class="cov0" title="0">select </span>{}
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package main
 
 import (
         "fmt"
+        "gtsdb/buffer"
+        "gtsdb/fanout"
+        "gtsdb/utils"
         "net"
+        "net/http"
         "os"
+        "os/signal"
+        "time"
+)
+
+var fanoutManager = fanout.NewFanout()
+
+const (
+        tcpListenAddr  = ":5555"
+        httpListenAddr = ":5556"
 )
 
 func main() <span class="cov0" title="0">{
-        fanoutManager.Start() //this will start 2 go routines in the background
-        defer func() </span><span class="cov0" title="0">{
-                // This will run when the main function exits
-                fmt.Println("GTSDB is shutting down...")
-                flushRemainingDataPoints()
-                fmt.Println("Done.")
-        }</span>()
+        utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
+        utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
+        utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
+        utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
-        //if dataDir does not exist, create it
-        <span class="cov0" title="0">if _, err := os.Stat(dataDir); os.IsNotExist(err) </span><span class="cov0" title="0">{
-                err := os.Mkdir(dataDir, 0755)
-                if err != nil </span><span class="cov0" title="0">{
-                        fmt.Println("Error creating data directory:", err)
-                        os.Exit(1)
-                }</span>
-        }
-        <span class="cov0" title="0">listener, err := net.Listen("tcp", ":5555")
+        utils.InitDataDirectory()
+        fanoutManager.Start() //this will start 2 go routines in the background
+
+        // Start both TCP and HTTP servers
+        go startTCPServer()
+        go startHTTPServer()
+
+        // Wait for interrupt signal
+        c := make(chan os.Signal, 1)
+        signal.Notify(c, os.Interrupt)
+        &lt;-c
+
+        utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
+        buffer.FlushRemainingDataPoints()
+        utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
+        os.Exit(0)
+}</span>
+
+func startTCPServer() <span class="cov0" title="0">{
+        listener, err := net.Listen("tcp", tcpListenAddr)
         if err != nil </span><span class="cov0" title="0">{
                 fmt.Println("Error listening:", err)
                 os.Exit(1)
         }</span>
         <span class="cov0" title="0">defer listener.Close()
 
-        fmt.Println("Listening on :5555")
+        utils.Logln("👂 用心監聽 TCP " + tcpListenAddr)
 
         for </span><span class="cov0" title="0">{
                 conn, err := listener.Accept()
@@ -914,10 +1329,225 @@ func main() <span class="cov0" title="0">{
                         fmt.Println("Error accepting connection:", err)
                         continue</span>
                 }
-
                 <span class="cov0" title="0">go handleConnection(conn)</span>
         }
 }
+
+func startHTTPServer() <span class="cov0" title="0">{
+        utils.Log("👂 用心監聽 HTTP " + httpListenAddr)
+        http.ListenAndServe(httpListenAddr, setupHTTPRoutes())
+}</span>
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package synchronous
+
+type RingBuffer[T any] struct {
+        buffer []T
+        size   int
+        head   int
+        tail   int
+}
+
+func NewRingBuffer[T any](capacity int) *RingBuffer[T] <span class="cov8" title="1">{
+        return &amp;RingBuffer[T]{
+                buffer: make([]T, capacity),
+                size:   0,
+                head:   0,
+                tail:   0,
+        }
+}</span>
+
+func (rb *RingBuffer[T]) Push(item T) <span class="cov8" title="1">{
+        rb.buffer[rb.tail] = item
+        rb.tail = (rb.tail + 1) % len(rb.buffer)
+        if rb.size &lt; len(rb.buffer) </span><span class="cov8" title="1">{
+                rb.size++
+        }</span> else<span class="cov8" title="1"> {
+                rb.head = (rb.head + 1) % len(rb.buffer)
+        }</span>
+}
+
+func (rb *RingBuffer[T]) Get(index int) T <span class="cov8" title="1">{
+        if index &lt; 0 || index &gt;= rb.size </span><span class="cov8" title="1">{
+                panic("Index out of bounds")</span>
+        }
+        <span class="cov8" title="1">pos := (rb.head + index) % len(rb.buffer)
+        return rb.buffer[pos]</span>
+}
+
+func (rb *RingBuffer[T]) GetAll() []T <span class="cov8" title="1">{
+        result := make([]T, rb.size)
+        for i := 0; i &lt; rb.size; i++ </span><span class="cov8" title="1">{
+                result[i] = rb.Get(i)
+        }</span>
+        <span class="cov8" title="1">return result</span>
+}
+
+func (rb *RingBuffer[T]) Size() int <span class="cov8" title="1">{
+        return rb.size
+}</span>
+
+func (rb *RingBuffer[T]) Capacity() int <span class="cov0" title="0">{
+        return len(rb.buffer)
+}</span>
+</pre>
+		
+		<pre class="file" id="file10" style="display: none">package main
+
+import (
+        "bufio"
+        "fmt"
+        "gtsdb/buffer"
+        models "gtsdb/models"
+        "math/rand"
+        "net"
+        "slices"
+        "strconv"
+        "strings"
+        "time"
+)
+
+func handleConnection(conn net.Conn) <span class="cov8" title="1">{
+        defer conn.Close()
+        id := rand.Intn(1000) + int(time.Now().UnixNano())
+        scanner := bufio.NewScanner(conn)
+        subscribingDevices := []string{}
+        for scanner.Scan() </span><span class="cov8" title="1">{
+                message := scanner.Text()
+                parts := strings.Split(message, ",")
+                action := parts[0]
+                switch action </span>{
+                case "subscribe":<span class="cov8" title="1">
+                        subscribingDevices = append(subscribingDevices, parts[1])
+                        if len(subscribingDevices) == 1 </span><span class="cov8" title="1">{ // First subscription
+                                fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
+                                fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
+                                        fmt.Println("Received message:", msg)
+                                        if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
+                                                conn.Write([]byte(fmt.Sprintf("%v\n", msg)))
+                                        }</span>
+                                })
+                        }
+                        <span class="cov8" title="1">conn.Write([]byte("msg:Subscribed to " + parts[1] + "\n"))</span>
+                case "unsubscribe":<span class="cov8" title="1">
+                        for i, device := range subscribingDevices </span><span class="cov8" title="1">{
+                                if device == parts[1] </span><span class="cov8" title="1">{
+                                        subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
+                                        break</span>
+                                }
+                        }
+                        <span class="cov8" title="1">if len(subscribingDevices) == 0 </span><span class="cov8" title="1">{
+                                fmt.Printf("Removing consumer %d\n", id)
+                                fanoutManager.RemoveConsumer(id)
+                        }</span>
+                        <span class="cov8" title="1">conn.Write([]byte("msg:Unsubscribed from " + parts[1] + "\n"))</span>
+                case "write":<span class="cov8" title="1">
+                        if len(parts) != 4 </span><span class="cov8" title="1">{
+                                conn.Write([]byte("Invalid write format\n"))
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">id := parts[1]
+                        timestamp, tsErr := strconv.ParseInt(parts[2], 10, 64)
+                        if tsErr != nil || timestamp &lt;= 0 </span><span class="cov0" title="0">{
+                                timestamp = time.Now().Unix()
+                        }</span>
+                        <span class="cov8" title="1">value, _ := strconv.ParseFloat(parts[3], 64)
+                        dataPoint := models.DataPoint{
+                                ID:        id,
+                                Timestamp: timestamp,
+                                Value:     value,
+                        }
+                        buffer.StoreDataPointBuffer(dataPoint)
+                        conn.Write([]byte("Data point stored\n"))</span>
+                case "read":<span class="cov8" title="1">
+                        if len(parts) &lt; 5 </span><span class="cov8" title="1">{
+                                conn.Write([]byte("Invalid read format\n"))
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">id := parts[1]
+                        startTime, _ := strconv.ParseInt(parts[2], 10, 64)
+                        endTime, _ := strconv.ParseInt(parts[3], 10, 64)
+                        downsample, _ := strconv.Atoi(parts[4])
+
+                        var response string
+                        if downsample &lt; 0 </span><span class="cov0" title="0">{
+                                lastDataPoints := buffer.ReadLastDataPoints(id, downsample*-1)
+                                response = buffer.FormatDataPoints(lastDataPoints)
+                        }</span> else<span class="cov8" title="1"> {
+                                aggregation := "avg"
+                                if len(parts) == 6 </span><span class="cov0" title="0">{
+                                        aggregation = parts[5]
+                                }</span>
+                                <span class="cov8" title="1">dataPoints := buffer.ReadDataPoints(id, startTime, endTime, downsample, aggregation)
+                                response = buffer.FormatDataPoints(dataPoints)</span>
+                        }
+                        <span class="cov8" title="1">conn.Write([]byte(response))</span>
+                case "flush":<span class="cov8" title="1">
+                        buffer.FlushRemainingDataPoints()
+                        conn.Write([]byte("Data points flushed\n"))</span>
+
+                default:<span class="cov8" title="1">
+                        conn.Write([]byte("Invalid action\n"))</span>
+                }
+        }
+}
+</pre>
+		
+		<pre class="file" id="file11" style="display: none">package utils
+
+import (
+        "fmt"
+        "os"
+        "time"
+)
+
+var DataDir = "data"
+
+func dateString() string <span class="cov8" title="1">{
+        return time.Now().Format("2006-01-02 15:04:05")
+}</span>
+func InitDataDirectory() <span class="cov8" title="1">{
+        //if dataDir does not exist, create it
+        if _, err := os.Stat(DataDir); os.IsNotExist(err) </span><span class="cov8" title="1">{
+                err := os.Mkdir(DataDir, 0755)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("Error creating data directory:", err)
+                        os.Exit(1)
+                }</span>
+        }
+}
+
+func Log(message string, args ...interface{}) <span class="cov8" title="1">{
+        fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprintf(message, args...))
+}</span>
+
+func Error(message string, args ...interface{}) <span class="cov8" title="1">{
+        fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprintf(message, args...))
+}</span>
+
+func Warning(message string, args ...interface{}) <span class="cov8" title="1">{
+        fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprintf(message, args...))
+}</span>
+
+func Debug(message string, args ...interface{}) <span class="cov8" title="1">{
+        fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintf(message, args...))
+}</span>
+
+func Logln(messages ...interface{}) <span class="cov0" title="0">{
+        fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+}</span>
+
+func Errorln(messages ...interface{}) <span class="cov0" title="0">{
+        fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprintln(messages...))
+}</span>
+
+func Warningln(messages ...interface{}) <span class="cov0" title="0">{
+        fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprintln(messages...))
+}</span>
+
+func Debugln(messages ...interface{}) <span class="cov0" title="0">{
+        fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+}</span>
 </pre>
 		
 		</div>

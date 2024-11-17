@@ -37,3 +37,19 @@ func Warning(message string, args ...interface{}) {
 func Debug(message string, args ...interface{}) {
 	fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintf(message, args...))
 }
+
+func Logln(messages ...interface{}) {
+	fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+}
+
+func Errorln(messages ...interface{}) {
+	fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprintln(messages...))
+}
+
+func Warningln(messages ...interface{}) {
+	fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprintln(messages...))
+}
+
+func Debugln(messages ...interface{}) {
+	fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+}

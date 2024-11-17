@@ -79,3 +79,14 @@ func (h *HashMap[K, V]) ForEach(fn func(key K, value V)) {
 		fn(k, v)
 	}
 }
+
+// Values
+func (h *HashMap[K, V]) Values() []V {
+	h.RLock()
+	defer h.RUnlock()
+	values := make([]V, 0, len(h.items))
+	for _, v := range h.items {
+		values = append(values, v)
+	}
+	return values
+}

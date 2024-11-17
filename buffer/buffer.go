@@ -3,7 +3,8 @@ package buffer
 import (
 	"fmt"
 	"gtsdb/concurrent"
-	models "gtsdb/models"
+	"gtsdb/models"
+	"gtsdb/synchronous"
 	"gtsdb/utils"
 	"io"
 	"os"
@@ -16,70 +17,71 @@ const maxUnflushedDataPoints = 0
 var dataFileHandles = concurrent.NewHashMap[string, *os.File]()
 var indexFileHandles = concurrent.NewHashMap[string, *os.File]()
 var metaFileHandles = concurrent.NewHashMap[string, *os.File]()
-var ringBuffer = concurrent.NewHashMap[string, []models.DataPoint]()
+var idToRingBufferMap = concurrent.NewHashMap[string, *synchronous.RingBuffer[models.DataPoint]]()
 
 var lastValue = make(map[string]float64)
 var lastTimestamp = make(map[string]int64)
-var fileIdToBySynced = concurrent.NewSet[string]()
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
-
 	if maxUnflushedDataPoints == 0 {
 		storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
 		return
 	}
 
-	var dataPointBuffer = ringBuffer.AssertGet(dataPoint.ID)
-	ringBuffer.Set(dataPoint.ID, append(dataPointBuffer, dataPoint))
-
-	if len(dataPointBuffer) >= maxUnflushedDataPoints {
-		go storeDataPointBufferToFile(dataPoint.ID)
+	rb, ok := idToRingBufferMap.Get(dataPoint.ID)
+	if !ok {
+		rb = synchronous.NewRingBuffer[models.DataPoint](maxUnflushedDataPoints)
+		idToRingBufferMap.Set(dataPoint.ID, rb)
 	}
+	rb.Push(dataPoint)
+
+	storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
 	lastValue[dataPoint.ID] = dataPoint.Value
 	lastTimestamp[dataPoint.ID] = dataPoint.Timestamp
 }
 
 func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint {
-
 	if maxUnflushedDataPoints == 0 {
 		return []models.DataPoint{}
 	}
 
+	rb, ok := idToRingBufferMap.Get(id)
+	if !ok {
+		return []models.DataPoint{}
+	}
+
 	var result []models.DataPoint
-	for _, dataPoint := range ringBuffer.AssertGet(id) {
+	for i := 0; i < rb.Size(); i++ {
+		dataPoint := rb.Get(i)
 		if dataPoint.Timestamp >= startTime && dataPoint.Timestamp <= endTime {
 			result = append(result, dataPoint)
 		}
 	}
-
 	return result
 }
-func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 
+func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 	if count == 1 && lastTimestamp[id] != 0 {
 		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
 	}
-	var dataPointBuffer = ringBuffer.AssertGet(id)
-	if count > len(dataPointBuffer) {
-		count = len(dataPointBuffer)
+
+	rb, ok := idToRingBufferMap.Get(id)
+	if !ok {
+		return []models.DataPoint{}
+	}
+
+	if count > rb.Size() {
+		count = rb.Size()
 	}
 	if count == 0 {
 		return []models.DataPoint{}
 	}
-	return dataPointBuffer[len(dataPointBuffer)-count:]
-}
 
-func storeDataPointBufferToFile(id string) {
-
-	dataPoints := ringBuffer.AssertGet(id)
-	ringBuffer.Delete(id)
-	storeDataPoints(id, dataPoints)
-}
-
-func FlushRemainingDataPoints() {
-	ringBuffer.ForEach(func(id string, dataPoints []models.DataPoint) {
-		storeDataPointBufferToFile(id)
-	})
+	result := make([]models.DataPoint, count)
+	for i := 0; i < count; i++ {
+		result[i] = rb.Get(rb.Size() - count + i)
+	}
+	return result
 }
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
@@ -102,7 +104,6 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 			updateIndexFile(indexFile, dataPoint.Timestamp, offset)
 		}
 	}
-	fileIdToBySynced.Add(dataPointId)
 
 }
 func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File {
@@ -118,4 +119,18 @@ func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string,
 		handleArray.Set(fileName, file)
 	}
 	return file
+}
+
+func FlushRemainingDataPoints() {
+
+	//fsync all file handles
+	for _, file := range dataFileHandles.Values() {
+		file.Sync()
+	}
+	for _, file := range metaFileHandles.Values() {
+		file.Sync()
+	}
+	for _, file := range indexFileHandles.Values() {
+		file.Sync()
+	}
 }

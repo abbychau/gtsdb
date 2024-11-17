@@ -3,9 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"gtsdb/utils"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -97,24 +97,23 @@ func TestHandleConnection(t *testing.T) {
 		})
 	}
 }
+func setupTestFiles() (string, func()) {
+	// Create temporary directory
+	tmpDir, _ := os.MkdirTemp("", "gtsdb_test")
 
-func clearData() error {
-	files, err := filepath.Glob("data/*")
-	if err != nil {
-		return err
+	// Return cleanup function
+	cleanup := func() {
+		os.RemoveAll(tmpDir)
 	}
-	for _, file := range files {
-		if err := os.Remove(file); err != nil {
-			return err
-		}
-	}
-	return nil
+
+	return tmpDir, cleanup
 }
-
 func TestHandleConnectionIntegration(t *testing.T) {
-	if err := clearData(); err != nil {
-		t.Fatalf("Failed to clear data directory: %v", err)
-	}
+	tmpDir, cleanup := setupTestFiles()
+	defer cleanup()
+
+	// Set global data directory
+	utils.DataDir = tmpDir
 
 	client, server := net.Pipe()
 	defer client.Close()

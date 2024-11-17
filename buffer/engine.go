@@ -31,12 +31,14 @@ func readMetaCount(metaFile *os.File) int {
 func writeMetaCount(metaFile *os.File, count int) {
 	_, err := metaFile.Seek(0, io.SeekStart)
 	if err != nil {
-		utils.Error("Error seeking meta file:", err)
+		utils.Errorln("Error seeking meta file:", err)
 		return
 	}
-
+	str := fmt.Sprintf("count:%d\n", count)
+	//empty the file
 	metaFile.Truncate(0)
-	metaFile.WriteString(fmt.Sprintf("count:%d\n", count))
+	metaFile.Seek(0, io.SeekStart)
+	metaFile.WriteString(str)
 }
 
 func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
@@ -154,9 +156,7 @@ func ReadLastDataPoints(id string, count int) []models.DataPoint {
 	if len(dataPoints) < count {
 
 		remaining := count - len(dataPoints)
-		fmt.Println("remaining", remaining)
 		lastDataPoints, err := readLastFiledDataPoints(id, remaining)
-		fmt.Println("lastDataPoints", lastDataPoints)
 		if err == nil {
 			dataPoints = append(dataPoints, lastDataPoints...)
 		}
