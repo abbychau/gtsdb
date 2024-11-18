@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gtsdb/buffer"
 	"gtsdb/fanout"
+	"gtsdb/handlers"
 	"gtsdb/utils"
 	"net"
 	"net/http"
@@ -59,11 +60,11 @@ func startTCPServer() {
 			fmt.Println("Error accepting connection:", err)
 			continue
 		}
-		go handleConnection(conn)
+		go handlers.HandleTcpConnection(conn, fanoutManager)
 	}
 }
 
 func startHTTPServer() {
 	utils.Log("👂 用心監聽 HTTP " + httpListenAddr)
-	http.ListenAndServe(httpListenAddr, setupHTTPRoutes())
+	http.ListenAndServe(httpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
 }

@@ -39,17 +39,34 @@ func Debug(message string, args ...interface{}) {
 }
 
 func Logln(messages ...interface{}) {
-	fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+	fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprint(messages...))
 }
 
 func Errorln(messages ...interface{}) {
-	fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprintln(messages...))
+	fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprint(messages...))
 }
 
 func Warningln(messages ...interface{}) {
-	fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprintln(messages...))
+	fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprint(messages...))
 }
 
 func Debugln(messages ...interface{}) {
-	fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+	fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprint(messages...))
+}
+
+func SetupTestFiles() (string, func()) {
+	// Create temporary directory
+	tmpDir, err := os.MkdirTemp("", "gtsdb_test")
+	if err != nil {
+		//fatal
+		fmt.Println("Error creating temporary directory:", err)
+		os.Exit(1)
+	}
+
+	// Return cleanup function
+	cleanup := func() {
+		os.RemoveAll(tmpDir)
+	}
+
+	return tmpDir, cleanup
 }

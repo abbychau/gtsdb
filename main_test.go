@@ -13,7 +13,7 @@ import (
 // benchmark
 // go test -run=nonthingplease -bench BenchmarkMain -benchtime 10s
 func BenchmarkMain(b *testing.B) {
-	tmpDir, cleanup := setupTestFiles()
+	tmpDir, cleanup := utils.SetupTestFiles()
 	defer cleanup()
 
 	// Set global data directory
@@ -37,9 +37,17 @@ func BenchmarkMain(b *testing.B) {
 
 		// randomly select read or write
 		if i%2 == 0 {
-			fmt.Fprintf(conn, "write,%s,%d,%.2f\n", name, timestamp, value1) // write
+			// {
+			// 	"operation":"write",
+			// 	"Write": {
+			// 		"ID" : "a_sensor1",
+			// 		"Value": 32242424243333333333.3333
+			// 	}
+			// }
+			strWrite := "{\"operation\":\"write\",\"Write\":{\"ID\":\"%s\",\"Timestamp\":%d,\"Value\":%f}}\n"
+			fmt.Fprintf(conn, strWrite, name, timestamp, value1) // write
 			response, _ := bufio.NewReader(conn).ReadString('\n')
-			if response != "Data point stored\n" {
+			if response != "{\"success\":true,\"message\":\"Data point stored\"}\n" {
 				b.Error("Unexpected response when storing data point:", response)
 			}
 
@@ -47,12 +55,26 @@ func BenchmarkMain(b *testing.B) {
 
 			// random 1/2 chance to read from the last
 			dice := rand.Intn(2)
+
+			/*
+			   {
+			       "operation":"read",
+			       "Read": {
+			           "ID" : "a_sensor1",
+			           "startTime" : 0,
+			           "endTime" : 0
+			       }
+			   }
+			*/
+			strRead := "{\"operation\":\"read\",\"Read\":{\"ID\":\"%s\",\"startTime\":%d,\"endTime\":%d,\"aggregation\":%d}}\n"
+
 			if dice == 0 {
 				offset := rand.Int63n(100)
 				offset = min(offset, int64(i))
-				fmt.Fprintf(conn, "read,%s,%d,%d,%d\n", name, startTimestamp+offset, startTimestamp+offset+1000, 1) // random read
+
+				fmt.Fprintf(conn, strRead, name, startTimestamp+offset, startTimestamp+offset+1000, 1) // random read
 			} else {
-				fmt.Fprintf(conn, "read,%s,%d,%d,%d\n", name, 0, 0, -1) // read from the last
+				fmt.Fprintf(conn, strRead, name, 0, 0, -1) // read from the last
 			}
 			response, _ := bufio.NewReader(conn).ReadString('\n')
 			if len(response) == 0 {
@@ -61,10 +83,4 @@ func BenchmarkMain(b *testing.B) {
 		}
 	}
 
-	// Test flushing data points
-	fmt.Fprintf(conn, "flush\n")
-	response, _ := bufio.NewReader(conn).ReadString('\n')
-	if response != "Data points flushed\n" {
-		b.Error("Unexpected response when flushing data points:", response)
-	}
 }

@@ -8,23 +8,8 @@ import (
 	"testing"
 )
 
-func setupTestFiles(t *testing.T) (string, func()) {
-	// Create temporary directory
-	tmpDir, err := os.MkdirTemp("", "gtsdb_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Return cleanup function
-	cleanup := func() {
-		os.RemoveAll(tmpDir)
-	}
-
-	return tmpDir, cleanup
-}
-
 func TestMetaCount(t *testing.T) {
-	tmpDir, cleanup := setupTestFiles(t)
+	tmpDir, cleanup := utils.SetupTestFiles()
 	defer cleanup()
 
 	metaPath := filepath.Join(tmpDir, "meta.txt")
@@ -101,7 +86,7 @@ func TestFormatDataPoints(t *testing.T) {
 }
 
 func TestReadDataPoints(t *testing.T) {
-	tmpDir, cleanup := setupTestFiles(t)
+	tmpDir, cleanup := utils.SetupTestFiles()
 	defer cleanup()
 
 	// Set global data directory
