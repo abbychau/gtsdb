@@ -1,2 +1,4 @@
-data
+data/*.aof
+data/*.idx
+data/*.meta
 gtsdb
