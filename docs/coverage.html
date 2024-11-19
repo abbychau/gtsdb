@@ -3,7 +3,7 @@
 <html>
 	<head>
 		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-		<title>adapters: Go Coverage Report</title>
+		<title>buffer: Go Coverage Report</title>
 		<style>
 			body {
 				background: black;
@@ -55,29 +55,29 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/adapters/gtsdbDriver.go (0.0%)</option>
+				<option value="file0">gtsdb/buffer/engine.go (54.2%)</option>
 				
-				<option value="file1">gtsdb/buffer/buffer.go (3.2%)</option>
+				<option value="file1">gtsdb/buffer/storage.go (79.7%)</option>
 				
-				<option value="file2">gtsdb/buffer/engine.go (53.6%)</option>
+				<option value="file2">gtsdb/concurrent/hashmap.go (71.4%)</option>
 				
-				<option value="file3">gtsdb/concurrent/hashmap.go (71.4%)</option>
+				<option value="file3">gtsdb/concurrent/lru.go (100.0%)</option>
 				
-				<option value="file4">gtsdb/concurrent/lru.go (100.0%)</option>
+				<option value="file4">gtsdb/concurrent/set.go (91.3%)</option>
 				
-				<option value="file5">gtsdb/concurrent/set.go (91.3%)</option>
+				<option value="file5">gtsdb/fanout/fanout.go (61.9%)</option>
 				
-				<option value="file6">gtsdb/fanout/fanout.go (61.9%)</option>
+				<option value="file6">gtsdb/handlers/common.go (92.0%)</option>
 				
-				<option value="file7">gtsdb/httpHandler.go (0.0%)</option>
+				<option value="file7">gtsdb/handlers/httpHandler.go (0.0%)</option>
 				
-				<option value="file8">gtsdb/main.go (0.0%)</option>
+				<option value="file8">gtsdb/handlers/tcpHandler.go (0.0%)</option>
 				
-				<option value="file9">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
+				<option value="file9">gtsdb/main.go (0.0%)</option>
 				
-				<option value="file10">gtsdb/tcpHandler.go (87.5%)</option>
+				<option value="file10">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
 				
-				<option value="file11">gtsdb/utils/utils.go (57.1%)</option>
+				<option value="file11">gtsdb/utils/utils.go (38.1%)</option>
 				
 				</select>
 			</div>
@@ -91,347 +91,7 @@
 		</div>
 		<div id="content">
 		
-		<pre class="file" id="file0" style="display: none">package gtsdbclient
-
-import (
-        "bufio"
-        "errors"
-        "fmt"
-        "net"
-        "strconv"
-        "strings"
-        "sync"
-        "time"
-)
-
-type Client struct {
-        address    string
-        conn       net.Conn
-        mu         sync.Mutex
-        reconnect  bool
-        maxRetries int
-}
-
-type DataPoint struct {
-        Timestamp int64
-        Value     float64
-}
-
-type QueryResult struct {
-        Key       string
-        Timestamp int64
-        Value     float64
-}
-
-const (
-        defaultMaxRetries = 3
-        reconnectDelay    = time.Second
-)
-
-// NewClient creates a new TSDB client with auto-reconnection
-func NewClient(address string) *Client <span class="cov0" title="0">{
-        return &amp;Client{
-                address:    address,
-                reconnect:  true,
-                maxRetries: defaultMaxRetries,
-        }
-}</span>
-
-func (c *Client) connect() error <span class="cov0" title="0">{
-        c.mu.Lock()
-        defer c.mu.Unlock()
-
-        if c.conn != nil </span><span class="cov0" title="0">{
-                return nil
-        }</span>
-
-        <span class="cov0" title="0">conn, err := net.Dial("tcp", c.address)
-        if err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("connection failed: %w", err)
-        }</span>
-        <span class="cov0" title="0">c.conn = conn
-        return nil</span>
-}
-
-func (c *Client) ensureConnected() error <span class="cov0" title="0">{
-        var err error
-        for retry := 0; retry &lt; c.maxRetries; retry++ </span><span class="cov0" title="0">{
-                if c.conn != nil </span><span class="cov0" title="0">{
-                        // Test connection
-                        if _, err := c.conn.Write([]byte("")); err == nil </span><span class="cov0" title="0">{
-                                return nil
-                        }</span>
-                        <span class="cov0" title="0">c.conn.Close()
-                        c.conn = nil</span>
-                }
-
-                <span class="cov0" title="0">err = c.connect()
-                if err == nil </span><span class="cov0" title="0">{
-                        return nil
-                }</span>
-
-                <span class="cov0" title="0">time.Sleep(reconnectDelay)</span>
-        }
-        <span class="cov0" title="0">return fmt.Errorf("failed to connect after %d retries: %w", c.maxRetries, err)</span>
-}
-
-func (c *Client) writeCommand(cmd string) error <span class="cov0" title="0">{
-        c.mu.Lock()
-        defer c.mu.Unlock()
-
-        if err := c.ensureConnected(); err != nil </span><span class="cov0" title="0">{
-                return err
-        }</span>
-
-        <span class="cov0" title="0">_, err := fmt.Fprintf(c.conn, "%s\n", cmd)
-        return err</span>
-}
-
-func (c *Client) readResponse() (string, error) <span class="cov0" title="0">{
-        if err := c.ensureConnected(); err != nil </span><span class="cov0" title="0">{
-                return "", err
-        }</span>
-
-        <span class="cov0" title="0">reader := bufio.NewReader(c.conn)
-        response, err := reader.ReadString('\n')
-        return strings.TrimSpace(response), err</span>
-}
-
-// StoreValue stores a single value for a key
-func (c *Client) StoreValue(key string, value float64) error <span class="cov0" title="0">{
-        timestamp := time.Now().Unix()
-        return c.writeCommand(fmt.Sprintf("%s,%d,%.6f", key, timestamp, value))
-}</span>
-
-// StoreValueAt stores a value for a key at a specific timestamp
-func (c *Client) StoreValueAt(key string, timestamp time.Time, value float64) error <span class="cov0" title="0">{
-        return c.writeCommand(fmt.Sprintf("%s,%d,%.6f", key, timestamp.Unix(), value))
-}</span>
-
-// GetTimeRange retrieves data for a key within a time range with optional downsampling
-func (c *Client) GetTimeRange(key string, start, end time.Time, downsampleSeconds int) ([]QueryResult, error) <span class="cov0" title="0">{
-        cmd := fmt.Sprintf("%s,%d,%d,%d", key, start.Unix(), end.Unix(), downsampleSeconds)
-        if err := c.writeCommand(cmd); err != nil </span><span class="cov0" title="0">{
-                return nil, err
-        }</span>
-
-        <span class="cov0" title="0">response, err := c.readResponse()
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, err
-        }</span>
-
-        <span class="cov0" title="0">return parseQueryResponse(response)</span>
-}
-
-// GetLastValue retrieves the most recent value for a key
-func (c *Client) GetLastValue(key string) (*QueryResult, error) <span class="cov0" title="0">{
-        end := time.Now()
-        start := end.Add(-time.Minute) // Small window to get last value
-        results, err := c.GetTimeRange(key, start, end, 0)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, err
-        }</span>
-        <span class="cov0" title="0">if len(results) == 0 </span><span class="cov0" title="0">{
-                return nil, errors.New("no data found")
-        }</span>
-        <span class="cov0" title="0">return &amp;results[len(results)-1], nil</span>
-}
-
-// GetAggregatedValue retrieves downsampled data for a key over a duration
-func (c *Client) GetAggregatedValue(key string, duration time.Duration, downsampleSeconds int) ([]QueryResult, error) <span class="cov0" title="0">{
-        end := time.Now()
-        start := end.Add(-duration)
-        return c.GetTimeRange(key, start, end, downsampleSeconds)
-}</span>
-
-// Close closes the connection to the TSDB
-func (c *Client) Close() error <span class="cov0" title="0">{
-        c.mu.Lock()
-        defer c.mu.Unlock()
-
-        if c.conn != nil </span><span class="cov0" title="0">{
-                err := c.conn.Close()
-                c.conn = nil
-                return err
-        }</span>
-        <span class="cov0" title="0">return nil</span>
-}
-
-// Helper function to parse the query response
-func parseQueryResponse(response string) ([]QueryResult, error) <span class="cov0" title="0">{
-        if response == "" </span><span class="cov0" title="0">{
-                return []QueryResult{}, nil
-        }</span>
-
-        <span class="cov0" title="0">parts := strings.Split(response, "|")
-        results := make([]QueryResult, 0, len(parts))
-
-        for _, part := range parts </span><span class="cov0" title="0">{
-                fields := strings.Split(part, ",")
-                if len(fields) != 3 </span><span class="cov0" title="0">{
-                        continue</span>
-                }
-
-                <span class="cov0" title="0">timestamp, err := strconv.ParseInt(fields[1], 10, 64)
-                if err != nil </span><span class="cov0" title="0">{
-                        continue</span>
-                }
-
-                <span class="cov0" title="0">value, err := strconv.ParseFloat(fields[2], 64)
-                if err != nil </span><span class="cov0" title="0">{
-                        continue</span>
-                }
-
-                <span class="cov0" title="0">results = append(results, QueryResult{
-                        Key:       fields[0],
-                        Timestamp: timestamp,
-                        Value:     value,
-                })</span>
-        }
-
-        <span class="cov0" title="0">return results, nil</span>
-}
-</pre>
-		
-		<pre class="file" id="file1" style="display: none">package buffer
-
-import (
-        "fmt"
-        "gtsdb/concurrent"
-        "gtsdb/models"
-        "gtsdb/synchronous"
-        "gtsdb/utils"
-        "io"
-        "os"
-)
-
-const indexInterval = 5000
-
-const maxUnflushedDataPoints = 0
-
-var dataFileHandles = concurrent.NewHashMap[string, *os.File]()
-var indexFileHandles = concurrent.NewHashMap[string, *os.File]()
-var metaFileHandles = concurrent.NewHashMap[string, *os.File]()
-var idToRingBufferMap = concurrent.NewHashMap[string, *synchronous.RingBuffer[models.DataPoint]]()
-
-var lastValue = make(map[string]float64)
-var lastTimestamp = make(map[string]int64)
-
-func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov0" title="0">{
-        if maxUnflushedDataPoints == 0 </span><span class="cov0" title="0">{
-                storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
-                return
-        }</span>
-
-        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Get(dataPoint.ID)
-        if !ok </span><span class="cov0" title="0">{
-                rb = synchronous.NewRingBuffer[models.DataPoint](maxUnflushedDataPoints)
-                idToRingBufferMap.Set(dataPoint.ID, rb)
-        }</span>
-        <span class="cov0" title="0">rb.Push(dataPoint)
-
-        storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
-        lastValue[dataPoint.ID] = dataPoint.Value
-        lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
-}
-
-func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
-        if maxUnflushedDataPoints == 0 </span><span class="cov8" title="1">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Get(id)
-        if !ok </span><span class="cov0" title="0">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov0" title="0">var result []models.DataPoint
-        for i := 0; i &lt; rb.Size(); i++ </span><span class="cov0" title="0">{
-                dataPoint := rb.Get(i)
-                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov0" title="0">{
-                        result = append(result, dataPoint)
-                }</span>
-        }
-        <span class="cov0" title="0">return result</span>
-}
-
-func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov0" title="0">{
-        if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov0" title="0">{
-                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
-        }</span>
-
-        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Get(id)
-        if !ok </span><span class="cov0" title="0">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov0" title="0">if count &gt; rb.Size() </span><span class="cov0" title="0">{
-                count = rb.Size()
-        }</span>
-        <span class="cov0" title="0">if count == 0 </span><span class="cov0" title="0">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov0" title="0">result := make([]models.DataPoint, count)
-        for i := 0; i &lt; count; i++ </span><span class="cov0" title="0">{
-                result[i] = rb.Get(rb.Size() - count + i)
-        }</span>
-        <span class="cov0" title="0">return result</span>
-}
-
-func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov0" title="0">{
-        dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
-        metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
-        indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
-        for _, dataPoint := range dataPoints </span><span class="cov0" title="0">{
-
-                line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
-                dataFile.WriteString(line)
-                count := readMetaCount(metaFile)
-                count++
-                writeMetaCount(metaFile, count)
-
-                if count%indexInterval == 0 </span><span class="cov0" title="0">{
-
-                        //end position of this file
-                        offset, _ := dataFile.Seek(0, io.SeekEnd)
-                        offset -= int64(len(line))
-                        updateIndexFile(indexFile, dataPoint.Timestamp, offset)
-                }</span>
-        }
-
-}
-func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File <span class="cov0" title="0">{
-
-        file, ok := handleArray.Get(fileName)
-        if !ok </span><span class="cov0" title="0">{
-                var err error
-                file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-
-                if err != nil </span><span class="cov0" title="0">{
-                        panic(err)</span>
-                }
-                <span class="cov0" title="0">handleArray.Set(fileName, file)</span>
-        }
-        <span class="cov0" title="0">return file</span>
-}
-
-func FlushRemainingDataPoints() <span class="cov0" title="0">{
-
-        //fsync all file handles
-        for _, file := range dataFileHandles.Values() </span><span class="cov0" title="0">{
-                file.Sync()
-        }</span>
-        <span class="cov0" title="0">for _, file := range metaFileHandles.Values() </span><span class="cov0" title="0">{
-                file.Sync()
-        }</span>
-        <span class="cov0" title="0">for _, file := range indexFileHandles.Values() </span><span class="cov0" title="0">{
-                file.Sync()
-        }</span>
-}
-</pre>
-		
-		<pre class="file" id="file2" style="display: none">package buffer
+		<pre class="file" id="file0" style="display: none">package buffer
 
 import (
         "bufio"
@@ -458,7 +118,7 @@ func readMetaCount(metaFile *os.File) int <span class="cov8" title="1">{
                 return count
         }</span>
 
-        <span class="cov0" title="0">return 0</span>
+        <span class="cov8" title="1">return 0</span>
 }
 
 func writeMetaCount(metaFile *os.File, count int) <span class="cov8" title="1">{
@@ -753,7 +413,136 @@ func JsonFormatDataPoints(dataPoints []models.DataPoint) string <span class="cov
 }</span>
 </pre>
 		
-		<pre class="file" id="file3" style="display: none">package concurrent
+		<pre class="file" id="file1" style="display: none">package buffer
+
+import (
+        "fmt"
+        "gtsdb/concurrent"
+        "gtsdb/models"
+        "gtsdb/synchronous"
+        "gtsdb/utils"
+        "io"
+        "os"
+)
+
+func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
+        if cacheSize == 0 </span><span class="cov0" title="0">{
+                storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+                return
+        }</span>
+
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(dataPoint.ID)
+        if !ok </span><span class="cov8" title="1">{
+                rb = synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+                idToRingBufferMap.Set(dataPoint.ID, rb)
+        }</span>
+        <span class="cov8" title="1">rb.Push(dataPoint)
+
+        storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+        lastValue[dataPoint.ID] = dataPoint.Value
+        lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
+}
+
+func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
+        if cacheSize == 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov8" title="1">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov8" title="1">var result []models.DataPoint
+        for i := 0; i &lt; rb.Size(); i++ </span><span class="cov8" title="1">{
+                dataPoint := rb.Get(i)
+                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
+                        result = append(result, dataPoint)
+                }</span>
+        }
+        <span class="cov8" title="1">return result</span>
+}
+
+func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
+        if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
+        }</span>
+
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov8" title="1">if count &gt; rb.Size() </span><span class="cov0" title="0">{
+                count = rb.Size()
+        }</span>
+        <span class="cov8" title="1">if count == 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov8" title="1">result := make([]models.DataPoint, count)
+        for i := 0; i &lt; count; i++ </span><span class="cov8" title="1">{
+                result[i] = rb.Get(rb.Size() - count + i)
+        }</span>
+        <span class="cov8" title="1">return result</span>
+}
+
+func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
+        dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
+        metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
+        indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
+        for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
+
+                line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
+                dataFile.WriteString(line)
+                count := readMetaCount(metaFile)
+                count++
+                writeMetaCount(metaFile, count)
+
+                if count%indexInterval == 0 </span><span class="cov0" title="0">{
+
+                        //end position of this file
+                        offset, _ := dataFile.Seek(0, io.SeekEnd)
+                        offset -= int64(len(line))
+                        updateIndexFile(indexFile, dataPoint.Timestamp, offset)
+                }</span>
+        }
+
+}
+func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File <span class="cov8" title="1">{
+
+        file, ok := handleArray.Get(fileName)
+        if !ok </span><span class="cov8" title="1">{
+                var err error
+                file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+
+                if err != nil </span><span class="cov0" title="0">{
+                        file, err = os.OpenFile("../"+utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644) //this is for go test //TODO: any better way?
+                        if err != nil </span><span class="cov0" title="0">{
+                                panic(err)</span>
+                        }
+                }
+                <span class="cov8" title="1">handleArray.Set(fileName, file)</span>
+        }
+        <span class="cov8" title="1">return file</span>
+}
+
+func FlushRemainingDataPoints() <span class="cov8" title="1">{
+
+        //fsync all file handles
+        for _, file := range dataFileHandles.Values() </span><span class="cov8" title="1">{
+                file.Sync()
+        }</span>
+        <span class="cov8" title="1">for _, file := range metaFileHandles.Values() </span><span class="cov8" title="1">{
+                file.Sync()
+        }</span>
+        <span class="cov8" title="1">for _, file := range indexFileHandles.Values() </span><span class="cov8" title="1">{
+                file.Sync()
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package concurrent
 
 //🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹
 import "sync"
@@ -847,7 +636,7 @@ func (h *HashMap[K, V]) Values() []V <span class="cov0" title="0">{
 }
 </pre>
 		
-		<pre class="file" id="file4" style="display: none">package concurrent
+		<pre class="file" id="file3" style="display: none">package concurrent
 
 import "sync"
 
@@ -942,7 +731,7 @@ func (l *LRU[K, V]) Len() int <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file5" style="display: none">package concurrent
+		<pre class="file" id="file4" style="display: none">package concurrent
 
 import (
         "sync"
@@ -1051,7 +840,7 @@ func (s *Set[T]) Intersection(other *Set[T]) *Set[T] <span class="cov8" title="1
 }
 </pre>
 		
-		<pre class="file" id="file6" style="display: none">package fanout
+		<pre class="file" id="file5" style="display: none">package fanout
 
 import (
         models "gtsdb/models"
@@ -1120,14 +909,11 @@ func (f *Fanout) producer() <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file7" style="display: none">package main
+		<pre class="file" id="file6" style="display: none">package handlers
 
 import (
-        "encoding/json"
-        "fmt"
         "gtsdb/buffer"
         "gtsdb/models"
-        "net/http"
         "time"
 )
 
@@ -1159,12 +945,73 @@ type Response struct {
         Data    interface{} `json:"data,omitempty"`
 }
 
+func HandleOperation(op Operation) Response <span class="cov8" title="1">{
+        switch op.Operation </span>{
+        case "write":<span class="cov8" title="1">
+                if op.Write == nil </span><span class="cov8" title="1">{
+                        return Response{Success: false, Message: "Write data required"}
+                }</span>
+                <span class="cov8" title="1">if op.Write.Timestamp &lt;= 0 </span><span class="cov8" title="1">{
+                        op.Write.Timestamp = time.Now().Unix()
+                }</span>
+                <span class="cov8" title="1">dataPoint := models.DataPoint{
+                        ID:        op.Write.ID,
+                        Timestamp: op.Write.Timestamp,
+                        Value:     op.Write.Value,
+                }
+                buffer.StoreDataPointBuffer(dataPoint)
+                return Response{Success: true, Message: "Data point stored"}</span>
+
+        case "read":<span class="cov8" title="1">
+                if op.Read == nil </span><span class="cov8" title="1">{
+                        return Response{Success: false, Message: "Read parameters required"}
+                }</span>
+                <span class="cov8" title="1">if op.Read.Aggregation == "" </span><span class="cov8" title="1">{
+                        op.Read.Aggregation = "avg"
+                }</span>
+
+                <span class="cov8" title="1">var response []models.DataPoint
+                if op.Read.LastX &gt; 0 || (op.Read.StartTime == 0 &amp;&amp; op.Read.EndTime == 0) </span><span class="cov8" title="1">{
+                        last := op.Read.LastX
+                        if last == 0 </span><span class="cov0" title="0">{
+                                last = 1
+                        }</span>
+                        <span class="cov8" title="1">if last &lt; 0 </span><span class="cov0" title="0">{
+                                last = last * -1
+                        }</span>
+                        <span class="cov8" title="1">response = buffer.ReadLastDataPoints(op.Read.ID, last)</span>
+                } else<span class="cov8" title="1"> {
+                        response = buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
+                }</span>
+                <span class="cov8" title="1">return Response{Success: true, Data: response}</span>
+
+        case "flush":<span class="cov8" title="1">
+                buffer.FlushRemainingDataPoints()
+                return Response{Success: true, Message: "Data points flushed"}</span>
+
+        default:<span class="cov8" title="1">
+                return Response{Success: false, Message: "Invalid operation"}</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package handlers
+
+import (
+        "encoding/json"
+        "fmt"
+        "gtsdb/fanout"
+        "gtsdb/models"
+        "net/http"
+        "time"
+)
+
 func writeJSON(w http.ResponseWriter, response Response) <span class="cov0" title="0">{
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(response)
 }</span>
 
-func setupHTTPRoutes() http.Handler <span class="cov0" title="0">{
+func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler <span class="cov0" title="0">{
         mux := http.NewServeMux()
 
         mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
@@ -1179,70 +1026,23 @@ func setupHTTPRoutes() http.Handler <span class="cov0" title="0">{
                         return
                 }</span>
 
-                <span class="cov0" title="0">switch op.Operation </span>{
-                case "write":<span class="cov0" title="0">
-                        if op.Write == nil </span><span class="cov0" title="0">{
-                                writeJSON(w, Response{Success: false, Message: "Write data required"})
-                                return
-                        }</span>
-                        <span class="cov0" title="0">if op.Write.Timestamp &lt;= 0 </span><span class="cov0" title="0">{
-                                op.Write.Timestamp = time.Now().Unix()
-                        }</span>
-                        <span class="cov0" title="0">dataPoint := models.DataPoint{
-                                ID:        op.Write.ID,
-                                Timestamp: op.Write.Timestamp,
-                                Value:     op.Write.Value,
-                        }
-                        buffer.StoreDataPointBuffer(dataPoint)
-                        writeJSON(w, Response{Success: true, Message: "Data point stored"})</span>
-
-                case "read":<span class="cov0" title="0">
-                        if op.Read == nil </span><span class="cov0" title="0">{
-                                writeJSON(w, Response{Success: false, Message: "Read parameters required"})
-                                return
-                        }</span>
-                        <span class="cov0" title="0">if op.Read.Aggregation == "" </span><span class="cov0" title="0">{
-                                op.Read.Aggregation = "avg"
-                        }</span>
-
-                        <span class="cov0" title="0">var response []models.DataPoint
-                        if op.Read.LastX &gt; 0 || (op.Read.StartTime == 0 &amp;&amp; op.Read.EndTime == 0) </span><span class="cov0" title="0">{
-                                last := op.Read.LastX
-                                if last == 0 </span><span class="cov0" title="0">{
-                                        last = 1
-                                }</span>
-                                <span class="cov0" title="0">if last &lt; 0 </span><span class="cov0" title="0">{
-                                        last = last * -1
-                                }</span>
-
-                                <span class="cov0" title="0">lastDataPoints := buffer.ReadLastDataPoints(op.Read.ID, last)
-                                response = lastDataPoints</span>
-                        } else<span class="cov0" title="0"> {
-                                dataPoints := buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
-                                response = dataPoints
-                        }</span>
-                        <span class="cov0" title="0">writeJSON(w, Response{Success: true, Data: response})</span>
-
-                case "flush":<span class="cov0" title="0">
-                        buffer.FlushRemainingDataPoints()
-                        writeJSON(w, Response{Success: true, Message: "Data points flushed"})</span>
-
-                case "subscribe":<span class="cov0" title="0">
+                <span class="cov0" title="0">if op.Operation == "subscribe" </span><span class="cov0" title="0">{
                         if op.DeviceID == "" </span><span class="cov0" title="0">{
                                 writeJSON(w, Response{Success: false, Message: "Device ID required"})
                                 return
                         }</span>
-                        <span class="cov0" title="0">handleSSE(w, op.DeviceID)</span>
-
-                default:<span class="cov0" title="0">
-                        writeJSON(w, Response{Success: false, Message: "Invalid operation"})</span>
+                        <span class="cov0" title="0">handleSSE(w, op.DeviceID, fanoutManager)
+                        return</span>
                 }
+
+                <span class="cov0" title="0">response := HandleOperation(op)
+                writeJSON(w, response)</span>
         })
 
         <span class="cov0" title="0">return mux</span>
 }
 
-func handleSSE(w http.ResponseWriter, deviceID string) <span class="cov0" title="0">{
+func handleSSE(w http.ResponseWriter, deviceID string, fanoutManager *fanout.Fanout) <span class="cov0" title="0">{
         w.Header().Set("Content-Type", "text/event-stream")
         w.Header().Set("Cache-Control", "no-cache")
         w.Header().Set("Connection", "keep-alive")
@@ -1268,12 +1068,85 @@ func handleSSE(w http.ResponseWriter, deviceID string) <span class="cov0" title=
 }
 </pre>
 		
-		<pre class="file" id="file8" style="display: none">package main
+		<pre class="file" id="file8" style="display: none">package handlers
+
+import (
+        "bufio"
+        "encoding/json"
+        "fmt"
+        "gtsdb/fanout"
+        "gtsdb/models"
+
+        "math/rand"
+        "net"
+        "slices"
+        "time"
+)
+
+func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) <span class="cov0" title="0">{
+        defer conn.Close()
+        id := rand.Intn(1000) + int(time.Now().UnixNano())
+        scanner := bufio.NewScanner(conn)
+        subscribingDevices := []string{}
+
+        for scanner.Scan() </span><span class="cov0" title="0">{
+                var op Operation
+                if err := json.Unmarshal(scanner.Bytes(), &amp;op); err != nil </span><span class="cov0" title="0">{
+                        response := Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()}
+                        json.NewEncoder(conn).Encode(response)
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">if op.Operation == "subscribe" </span><span class="cov0" title="0">{
+                        if op.DeviceID == "" </span><span class="cov0" title="0">{
+                                json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
+                                continue</span>
+                        }
+                        <span class="cov0" title="0">subscribingDevices = append(subscribingDevices, op.DeviceID)
+                        if len(subscribingDevices) == 1 </span><span class="cov0" title="0">{
+                                fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
+                                fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
+                                        if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
+                                                json.NewEncoder(conn).Encode(Response{Success: true, Data: msg})
+                                        }</span>
+                                })
+                        }
+                        <span class="cov0" title="0">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + op.DeviceID})
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">if op.Operation == "unsubscribe" </span><span class="cov0" title="0">{
+                        if op.DeviceID == "" </span><span class="cov0" title="0">{
+                                json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
+                                continue</span>
+                        }
+                        <span class="cov0" title="0">for i, device := range subscribingDevices </span><span class="cov0" title="0">{
+                                if device == op.DeviceID </span><span class="cov0" title="0">{
+                                        subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
+                                        break</span>
+                                }
+                        }
+                        <span class="cov0" title="0">if len(subscribingDevices) == 0 </span><span class="cov0" title="0">{
+                                fmt.Printf("Removing consumer %d\n", id)
+                                fanoutManager.RemoveConsumer(id)
+                        }</span>
+                        <span class="cov0" title="0">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.DeviceID})
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">response := HandleOperation(op)
+                json.NewEncoder(conn).Encode(response)</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package main
 
 import (
         "fmt"
         "gtsdb/buffer"
         "gtsdb/fanout"
+        "gtsdb/handlers"
         "gtsdb/utils"
         "net"
         "net/http"
@@ -1329,17 +1202,17 @@ func startTCPServer() <span class="cov0" title="0">{
                         fmt.Println("Error accepting connection:", err)
                         continue</span>
                 }
-                <span class="cov0" title="0">go handleConnection(conn)</span>
+                <span class="cov0" title="0">go handlers.HandleTcpConnection(conn, fanoutManager)</span>
         }
 }
 
 func startHTTPServer() <span class="cov0" title="0">{
         utils.Log("👂 用心監聽 HTTP " + httpListenAddr)
-        http.ListenAndServe(httpListenAddr, setupHTTPRoutes())
+        http.ListenAndServe(httpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
 }</span>
 </pre>
 		
-		<pre class="file" id="file9" style="display: none">package synchronous
+		<pre class="file" id="file10" style="display: none">package synchronous
 
 type RingBuffer[T any] struct {
         buffer []T
@@ -1392,107 +1265,6 @@ func (rb *RingBuffer[T]) Capacity() int <span class="cov0" title="0">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file10" style="display: none">package main
-
-import (
-        "bufio"
-        "fmt"
-        "gtsdb/buffer"
-        models "gtsdb/models"
-        "math/rand"
-        "net"
-        "slices"
-        "strconv"
-        "strings"
-        "time"
-)
-
-func handleConnection(conn net.Conn) <span class="cov8" title="1">{
-        defer conn.Close()
-        id := rand.Intn(1000) + int(time.Now().UnixNano())
-        scanner := bufio.NewScanner(conn)
-        subscribingDevices := []string{}
-        for scanner.Scan() </span><span class="cov8" title="1">{
-                message := scanner.Text()
-                parts := strings.Split(message, ",")
-                action := parts[0]
-                switch action </span>{
-                case "subscribe":<span class="cov8" title="1">
-                        subscribingDevices = append(subscribingDevices, parts[1])
-                        if len(subscribingDevices) == 1 </span><span class="cov8" title="1">{ // First subscription
-                                fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
-                                fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
-                                        fmt.Println("Received message:", msg)
-                                        if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
-                                                conn.Write([]byte(fmt.Sprintf("%v\n", msg)))
-                                        }</span>
-                                })
-                        }
-                        <span class="cov8" title="1">conn.Write([]byte("msg:Subscribed to " + parts[1] + "\n"))</span>
-                case "unsubscribe":<span class="cov8" title="1">
-                        for i, device := range subscribingDevices </span><span class="cov8" title="1">{
-                                if device == parts[1] </span><span class="cov8" title="1">{
-                                        subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
-                                        break</span>
-                                }
-                        }
-                        <span class="cov8" title="1">if len(subscribingDevices) == 0 </span><span class="cov8" title="1">{
-                                fmt.Printf("Removing consumer %d\n", id)
-                                fanoutManager.RemoveConsumer(id)
-                        }</span>
-                        <span class="cov8" title="1">conn.Write([]byte("msg:Unsubscribed from " + parts[1] + "\n"))</span>
-                case "write":<span class="cov8" title="1">
-                        if len(parts) != 4 </span><span class="cov8" title="1">{
-                                conn.Write([]byte("Invalid write format\n"))
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">id := parts[1]
-                        timestamp, tsErr := strconv.ParseInt(parts[2], 10, 64)
-                        if tsErr != nil || timestamp &lt;= 0 </span><span class="cov0" title="0">{
-                                timestamp = time.Now().Unix()
-                        }</span>
-                        <span class="cov8" title="1">value, _ := strconv.ParseFloat(parts[3], 64)
-                        dataPoint := models.DataPoint{
-                                ID:        id,
-                                Timestamp: timestamp,
-                                Value:     value,
-                        }
-                        buffer.StoreDataPointBuffer(dataPoint)
-                        conn.Write([]byte("Data point stored\n"))</span>
-                case "read":<span class="cov8" title="1">
-                        if len(parts) &lt; 5 </span><span class="cov8" title="1">{
-                                conn.Write([]byte("Invalid read format\n"))
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">id := parts[1]
-                        startTime, _ := strconv.ParseInt(parts[2], 10, 64)
-                        endTime, _ := strconv.ParseInt(parts[3], 10, 64)
-                        downsample, _ := strconv.Atoi(parts[4])
-
-                        var response string
-                        if downsample &lt; 0 </span><span class="cov0" title="0">{
-                                lastDataPoints := buffer.ReadLastDataPoints(id, downsample*-1)
-                                response = buffer.FormatDataPoints(lastDataPoints)
-                        }</span> else<span class="cov8" title="1"> {
-                                aggregation := "avg"
-                                if len(parts) == 6 </span><span class="cov0" title="0">{
-                                        aggregation = parts[5]
-                                }</span>
-                                <span class="cov8" title="1">dataPoints := buffer.ReadDataPoints(id, startTime, endTime, downsample, aggregation)
-                                response = buffer.FormatDataPoints(dataPoints)</span>
-                        }
-                        <span class="cov8" title="1">conn.Write([]byte(response))</span>
-                case "flush":<span class="cov8" title="1">
-                        buffer.FlushRemainingDataPoints()
-                        conn.Write([]byte("Data points flushed\n"))</span>
-
-                default:<span class="cov8" title="1">
-                        conn.Write([]byte("Invalid action\n"))</span>
-                }
-        }
-}
-</pre>
-		
 		<pre class="file" id="file11" style="display: none">package utils
 
 import (
@@ -1534,20 +1306,37 @@ func Debug(message string, args ...interface{}) <span class="cov8" title="1">{
 }</span>
 
 func Logln(messages ...interface{}) <span class="cov0" title="0">{
-        fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+        fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
 func Errorln(messages ...interface{}) <span class="cov0" title="0">{
-        fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprintln(messages...))
+        fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
 func Warningln(messages ...interface{}) <span class="cov0" title="0">{
-        fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprintln(messages...))
+        fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
 func Debugln(messages ...interface{}) <span class="cov0" title="0">{
-        fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintln(messages...))
+        fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
+
+func SetupTestFiles() (string, func()) <span class="cov0" title="0">{
+        // Create temporary directory
+        tmpDir, err := os.MkdirTemp("", "gtsdb_test")
+        if err != nil </span><span class="cov0" title="0">{
+                //fatal
+                fmt.Println("Error creating temporary directory:", err)
+                os.Exit(1)
+        }</span>
+
+        // Return cleanup function
+        <span class="cov0" title="0">cleanup := func() </span><span class="cov0" title="0">{
+                os.RemoveAll(tmpDir)
+        }</span>
+
+        <span class="cov0" title="0">return tmpDir, cleanup</span>
+}
 </pre>
 		
 		</div>

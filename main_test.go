@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"gtsdb/utils"
 	"math/rand"
 	"net"
 	"testing"
@@ -13,11 +12,6 @@ import (
 // benchmark
 // go test -run=nonthingplease -bench BenchmarkMain -benchtime 10s
 func BenchmarkMain(b *testing.B) {
-	tmpDir, cleanup := utils.SetupTestFiles()
-	defer cleanup()
-
-	// Set global data directory
-	utils.DataDir = tmpDir
 
 	// Connect to the server
 	conn, err := net.Dial("tcp", ":5555")

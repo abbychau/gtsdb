@@ -9,7 +9,7 @@ import (
 
 const indexInterval = 5000
 
-const maxUnflushedDataPoints = 0
+var cacheSize = 100
 
 var dataFileHandles = concurrent.NewHashMap[string, *os.File]()
 var indexFileHandles = concurrent.NewHashMap[string, *os.File]()

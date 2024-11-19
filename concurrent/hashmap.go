@@ -36,12 +36,6 @@ func (h *HashMap[K, V]) Get(key K) (V, bool) {
 	return value, exists
 }
 
-func (h *HashMap[K, V]) AssertGet(key K) V {
-	h.RLock()
-	defer h.RUnlock()
-	return h.items[key]
-}
-
 // Delete removes an element from the map
 func (h *HashMap[K, V]) Delete(key K) {
 	h.Lock()

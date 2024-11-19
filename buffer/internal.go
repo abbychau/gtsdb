@@ -2,8 +2,8 @@ package buffer
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
+	"gtsdb/concurrent"
 	"gtsdb/models"
 	"gtsdb/utils"
 	"io"
@@ -11,6 +11,86 @@ import (
 	"strconv"
 	"strings"
 )
+
+func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
+	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
+	metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
+	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
+	for _, dataPoint := range dataPoints {
+
+		line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
+		dataFile.WriteString(line)
+		count := readMetaCount(metaFile)
+		count++
+		writeMetaCount(metaFile, count)
+
+		if count%indexInterval == 0 {
+
+			//end position of this file
+			offset, _ := dataFile.Seek(0, io.SeekEnd)
+			offset -= int64(len(line))
+			updateIndexFile(indexFile, dataPoint.Timestamp, offset)
+		}
+	}
+
+}
+func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File {
+
+	file, ok := handleArray.Get(fileName)
+	if !ok {
+		var err error
+		file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+
+		if err != nil {
+			file, err = os.OpenFile("../"+utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644) //this is for go test //TODO: any better way?
+			if err != nil {
+				panic(err)
+			}
+		}
+		handleArray.Set(fileName, file)
+	}
+	return file
+}
+
+func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
+	file := dataFileById(id)
+	reader := bufio.NewReader(file)
+
+	//seek the last x bytes using offset
+	// line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
+	// 26 * count
+	_, err := file.Seek(int64(-26*count), io.SeekEnd)
+	if err != nil {
+		//if the file is smaller than the offset, seek to the beginning
+		file.Seek(0, io.SeekStart)
+	}
+
+	var dataPoints []models.DataPoint
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			utils.Error("Error reading file: %v", err)
+			return nil, err
+		}
+
+		parts := strings.Split(strings.TrimSpace(line), ",")
+		trimmedTimestamp := strings.TrimSpace(parts[0])
+		timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
+		trimmedValue := strings.TrimSpace(parts[1])
+		value, _ := strconv.ParseFloat(trimmedValue, 64)
+
+		dataPoints = append(dataPoints, models.DataPoint{
+			ID:        id,
+			Timestamp: timestamp,
+			Value:     value,
+		})
+	}
+
+	return dataPoints, nil
+}
 
 func readMetaCount(metaFile *os.File) int {
 	_, err := metaFile.Seek(0, io.SeekStart)
@@ -59,19 +139,6 @@ func dataFileById(id string) *os.File {
 		dataFileHandles.Set(filename, file)
 	}
 	return file
-}
-func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
-
-	dataPoints := readBufferedDataPoints(id, startTime, endTime)
-	if len(dataPoints) == 0 {
-		dataPoints = readFiledDataPoints(id, startTime, endTime)
-	}
-
-	if downsample > 1 {
-		dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
-	}
-
-	return dataPoints
 }
 
 func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint {
@@ -148,61 +215,48 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	return dataPoints
 }
 
-func ReadLastDataPoints(id string, count int) []models.DataPoint {
-
-	dataPoints := readLastBufferedDataPoints(id, count)
-	fmt.Println("dataPoints", dataPoints)
-	fmt.Println("Count", count)
-	if len(dataPoints) < count {
-
-		remaining := count - len(dataPoints)
-		lastDataPoints, err := readLastFiledDataPoints(id, remaining)
-		if err == nil {
-			dataPoints = append(dataPoints, lastDataPoints...)
-		}
+func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint {
+	if cacheSize == 0 {
+		return []models.DataPoint{}
 	}
 
-	return dataPoints
+	rb, ok := idToRingBufferMap.Get(id)
+	if !ok {
+		return []models.DataPoint{}
+	}
+
+	var result []models.DataPoint
+	for i := 0; i < rb.Size(); i++ {
+		dataPoint := rb.Get(i)
+		if dataPoint.Timestamp >= startTime && dataPoint.Timestamp <= endTime {
+			result = append(result, dataPoint)
+		}
+	}
+	return result
 }
 
-func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
-	file := dataFileById(id)
-	reader := bufio.NewReader(file)
-
-	//seek the last x bytes using offset
-	// line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
-	// 26 * count
-	_, err := file.Seek(int64(-26*count), io.SeekEnd)
-	if err != nil {
-		//if the file is smaller than the offset, seek to the beginning
-		file.Seek(0, io.SeekStart)
+func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
+	if count == 1 && lastTimestamp[id] != 0 {
+		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
 	}
 
-	var dataPoints []models.DataPoint
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			utils.Error("Error reading file: %v", err)
-			return nil, err
-		}
-
-		parts := strings.Split(strings.TrimSpace(line), ",")
-		trimmedTimestamp := strings.TrimSpace(parts[0])
-		timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
-		trimmedValue := strings.TrimSpace(parts[1])
-		value, _ := strconv.ParseFloat(trimmedValue, 64)
-
-		dataPoints = append(dataPoints, models.DataPoint{
-			ID:        id,
-			Timestamp: timestamp,
-			Value:     value,
-		})
+	rb, ok := idToRingBufferMap.Get(id)
+	if !ok {
+		return []models.DataPoint{}
 	}
 
-	return dataPoints, nil
+	if count > rb.Size() {
+		count = rb.Size()
+	}
+	if count == 0 {
+		return []models.DataPoint{}
+	}
+
+	result := make([]models.DataPoint, count)
+	for i := 0; i < count; i++ {
+		result[i] = rb.Get(rb.Size() - count + i)
+	}
+	return result
 }
 
 func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggregation string) []models.DataPoint {
@@ -293,28 +347,4 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 	}
 
 	return downsampled
-}
-
-func FormatDataPoints(dataPoints []models.DataPoint) string {
-	var response string
-
-	for i, dp := range dataPoints {
-		response += fmt.Sprintf("%s,%d,%.2f", dp.ID, dp.Timestamp, dp.Value)
-		if i < len(dataPoints)-1 {
-			response += "|"
-		}
-	}
-
-	response += "\n"
-
-	return response
-}
-
-// JsonFormatDataPoints
-func JsonFormatDataPoints(dataPoints []models.DataPoint) string {
-	var response string
-	//use json marshal to format the data points
-	bytes, _ := json.Marshal(dataPoints)
-	response = string(bytes)
-	return response
 }

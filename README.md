@@ -62,15 +62,16 @@ go build .
 
 [Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
 
+- Run: `go test -benchmem -run=^$ -bench ^BenchmarkMain$ -benchtime=5s`
+
 ```
-Version: 2024 11 11
 goos: windows
 goarch: amd64
 pkg: gtsdb
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24          705349             17267 ns/op
+BenchmarkMain-24         1567818             22939 ns/op            4245 B/op          5 allocs/op
 PASS
-ok      gtsdb   12.466s
+ok      gtsdb   59.321s
 ```
 
 
@@ -120,7 +121,7 @@ ok      gtsdb/concurrent        62.763s
 ```bash
 go test ./... -skip=TestMain -coverprofile=docs/coverage -p 1
 go tool cover -html docs/coverage -o docs/coverage.html
-
+start .\docs\coverage.html
 ```
 
 ## License

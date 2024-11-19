@@ -36,6 +36,12 @@ func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) {
 	f.wg.Add(1)
 }
 
+func (f *Fanout) GetConsumers() []*Consumer {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.consumers
+}
+
 func (f *Fanout) RemoveConsumer(id int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
