@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"gtsdb/buffer"
 	"gtsdb/fanout"
 	"gtsdb/handlers"
@@ -47,7 +46,7 @@ func main() {
 func startTCPServer() {
 	listener, err := net.Listen("tcp", tcpListenAddr)
 	if err != nil {
-		fmt.Println("Error listening:", err)
+		utils.Errorln("Error listening:", err)
 		os.Exit(1)
 	}
 	defer listener.Close()
@@ -57,7 +56,7 @@ func startTCPServer() {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection:", err)
+			utils.Errorln("Error accepting connection:", err)
 			continue
 		}
 		go handlers.HandleTcpConnection(conn, fanoutManager)

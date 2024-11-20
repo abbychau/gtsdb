@@ -18,7 +18,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
 
-		line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
+		line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
 		dataFile.WriteString(line)
 		count := readMetaCount(metaFile)
 		count++
@@ -34,6 +34,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	}
 
 }
+
 func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File {
 
 	file, ok := handleArray.Get(fileName)
@@ -53,7 +54,7 @@ func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string,
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
-	file := dataFileById(id)
+	file := prepareFileHandles(id+".aof", dataFileHandles)
 	reader := bufio.NewReader(file)
 
 	//seek the last x bytes using offset
@@ -77,6 +78,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 		}
 
 		parts := strings.Split(strings.TrimSpace(line), ",")
+		//utils.Debugln(parts)
 		trimmedTimestamp := strings.TrimSpace(parts[0])
 		timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
 		trimmedValue := strings.TrimSpace(parts[1])
@@ -125,24 +127,9 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 	line := fmt.Sprintf("%d,%d\n", timestamp, offset)
 	indexFile.WriteString(line)
 }
-func dataFileById(id string) *os.File {
-	filename := id + ".aof"
-
-	file, ok := dataFileHandles.Get(filename)
-	if !ok {
-		var err error
-		file, err = os.OpenFile(utils.DataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-		if err != nil {
-			utils.Error("Error opening file: %v", err)
-			return nil
-		}
-		dataFileHandles.Set(filename, file)
-	}
-	return file
-}
 
 func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint {
-	file := dataFileById(id)
+	file := prepareFileHandles(id+".aof", dataFileHandles)
 	var dataPoints []models.DataPoint
 	reader := bufio.NewReader(file)
 
@@ -161,7 +148,13 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 		for {
 			line, err := indexReader.ReadString('\n')
 			if err != nil {
-				break
+				if err == io.EOF {
+					break
+				} else {
+					utils.Error("Error reading index file: %v", err)
+					return nil
+				}
+
 			}
 
 			parts := strings.Split(strings.TrimSpace(line), ",")
@@ -233,6 +226,14 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 		}
 	}
 	return result
+}
+
+func checkIfBufferHasEnoughDataPoints(id string, count int) bool {
+	rb, ok := idToRingBufferMap.Get(id)
+	if !ok {
+		return false
+	}
+	return rb.Size() >= count
 }
 
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint {

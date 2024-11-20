@@ -26,13 +26,14 @@ func TestMain(m *testing.M) {
 }
 
 func cleanTestFiles(id string) {
+	utils.DataDir = "testdata"
 	os.Remove(utils.DataDir + "/" + id + ".aof")
 	os.Remove(utils.DataDir + "/" + id + ".meta")
 	os.Remove(utils.DataDir + "/" + id + ".idx")
 }
 
 func TestStoreDataPoints(t *testing.T) {
-	id := "test1"
+	id := "TestStoreDataPoints"
 	cleanTestFiles(id)
 
 	dataPoints := []models.DataPoint{
@@ -53,7 +54,7 @@ func TestStoreDataPoints(t *testing.T) {
 }
 
 func TestReadFiledDataPoints(t *testing.T) {
-	id := "test2"
+	id := "TestReadFiledDataPoints"
 	cleanTestFiles(id)
 
 	// Store test data
@@ -89,13 +90,14 @@ func TestReadFiledDataPoints(t *testing.T) {
 }
 
 func TestReadLastFiledDataPoints(t *testing.T) {
-	id := "test3"
+	id := "TestReadLastFiledDataPoints"
 	cleanTestFiles(id)
+	utils.DataDir = "testdata"
 
 	// Store test data
 	dataPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
+		{ID: id, Timestamp: 1111111000, Value: 1.0},
+		{ID: id, Timestamp: 1111112000, Value: 2.0},
 		{ID: id, Timestamp: 3000, Value: 3.0},
 	}
 	storeDataPoints(id, dataPoints)

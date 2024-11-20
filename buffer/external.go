@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gtsdb/models"
 	"gtsdb/synchronous"
+	"gtsdb/utils"
 )
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
@@ -27,16 +28,14 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 
 func ReadLastDataPoints(id string, count int) []models.DataPoint {
 
-	dataPoints := readLastBufferedDataPoints(id, count)
-	fmt.Println("dataPoints", dataPoints)
-	fmt.Println("Count", count)
-	if len(dataPoints) < count {
+	if checkIfBufferHasEnoughDataPoints(id, count) {
+		return readLastBufferedDataPoints(id, count)
+	}
 
-		remaining := count - len(dataPoints)
-		lastDataPoints, err := readLastFiledDataPoints(id, remaining)
-		if err == nil {
-			dataPoints = append(dataPoints, lastDataPoints...)
-		}
+	dataPoints, err := readLastFiledDataPoints(id, count)
+	if err != nil {
+		utils.Errorln(err)
+		return []models.DataPoint{}
 	}
 
 	return dataPoints

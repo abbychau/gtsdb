@@ -55,29 +55,29 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/engine.go (54.2%)</option>
+				<option value="file0">gtsdb/buffer/external.go (80.5%)</option>
 				
-				<option value="file1">gtsdb/buffer/storage.go (79.7%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (78.3%)</option>
 				
-				<option value="file2">gtsdb/concurrent/hashmap.go (71.4%)</option>
+				<option value="file2">gtsdb/concurrent/hashmap.go (78.1%)</option>
 				
 				<option value="file3">gtsdb/concurrent/lru.go (100.0%)</option>
 				
 				<option value="file4">gtsdb/concurrent/set.go (91.3%)</option>
 				
-				<option value="file5">gtsdb/fanout/fanout.go (61.9%)</option>
+				<option value="file5">gtsdb/fanout/fanout.go (83.3%)</option>
 				
 				<option value="file6">gtsdb/handlers/common.go (92.0%)</option>
 				
-				<option value="file7">gtsdb/handlers/httpHandler.go (0.0%)</option>
+				<option value="file7">gtsdb/handlers/httpHandler.go (37.1%)</option>
 				
-				<option value="file8">gtsdb/handlers/tcpHandler.go (0.0%)</option>
+				<option value="file8">gtsdb/handlers/tcpHandler.go (83.8%)</option>
 				
 				<option value="file9">gtsdb/main.go (0.0%)</option>
 				
 				<option value="file10">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
 				
-				<option value="file11">gtsdb/utils/utils.go (38.1%)</option>
+				<option value="file11">gtsdb/utils/utils.go (81.0%)</option>
 				
 				</select>
 			</div>
@@ -94,9 +94,105 @@
 		<pre class="file" id="file0" style="display: none">package buffer
 
 import (
-        "bufio"
         "encoding/json"
         "fmt"
+        "gtsdb/models"
+        "gtsdb/synchronous"
+        "gtsdb/utils"
+)
+
+func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
+        if cacheSize == 0 </span><span class="cov0" title="0">{
+                storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+                return
+        }</span>
+
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(dataPoint.ID)
+        if !ok </span><span class="cov8" title="1">{
+                rb = synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+                idToRingBufferMap.Set(dataPoint.ID, rb)
+        }</span>
+        <span class="cov8" title="1">rb.Push(dataPoint)
+
+        storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+        lastValue[dataPoint.ID] = dataPoint.Value
+        lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
+}
+
+func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
+
+        if checkIfBufferHasEnoughDataPoints(id, count) </span><span class="cov8" title="1">{
+                return readLastBufferedDataPoints(id, count)
+        }</span>
+
+        <span class="cov0" title="0">dataPoints, err := readLastFiledDataPoints(id, count)
+        if err != nil </span><span class="cov0" title="0">{
+                utils.Errorln(err)
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov0" title="0">return dataPoints</span>
+}
+
+func FlushRemainingDataPoints() <span class="cov8" title="1">{
+
+        //fsync all file handles
+        for _, file := range dataFileHandles.Values() </span><span class="cov8" title="1">{
+                file.Sync()
+        }</span>
+        <span class="cov8" title="1">for _, file := range metaFileHandles.Values() </span><span class="cov8" title="1">{
+                file.Sync()
+        }</span>
+        <span class="cov8" title="1">for _, file := range indexFileHandles.Values() </span><span class="cov8" title="1">{
+                file.Sync()
+        }</span>
+}
+
+func FormatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
+        var response string
+
+        for i, dp := range dataPoints </span><span class="cov8" title="1">{
+                response += fmt.Sprintf("%s,%d,%.2f", dp.ID, dp.Timestamp, dp.Value)
+                if i &lt; len(dataPoints)-1 </span><span class="cov8" title="1">{
+                        response += "|"
+                }</span>
+        }
+
+        <span class="cov8" title="1">response += "\n"
+
+        return response</span>
+}
+
+// JsonFormatDataPoints
+func JsonFormatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
+        var response string
+        //use json marshal to format the data points
+        bytes, _ := json.Marshal(dataPoints)
+        response = string(bytes)
+        return response
+}</span>
+
+func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
+
+        dataPoints := readBufferedDataPoints(id, startTime, endTime)
+        if len(dataPoints) == 0 </span><span class="cov0" title="0">{
+                dataPoints = readFiledDataPoints(id, startTime, endTime)
+        }</span>
+
+        <span class="cov8" title="1">if downsample &gt; 1 </span><span class="cov8" title="1">{
+                dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
+        }</span>
+
+        <span class="cov8" title="1">return dataPoints</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package buffer
+
+import (
+        "bufio"
+        "fmt"
+        "gtsdb/concurrent"
         "gtsdb/models"
         "gtsdb/utils"
         "io"
@@ -104,6 +200,88 @@ import (
         "strconv"
         "strings"
 )
+
+func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
+        dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
+        metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
+        indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
+        for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
+
+                line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
+                dataFile.WriteString(line)
+                count := readMetaCount(metaFile)
+                count++
+                writeMetaCount(metaFile, count)
+
+                if count%indexInterval == 0 </span><span class="cov0" title="0">{
+
+                        //end position of this file
+                        offset, _ := dataFile.Seek(0, io.SeekEnd)
+                        offset -= int64(len(line))
+                        updateIndexFile(indexFile, dataPoint.Timestamp, offset)
+                }</span>
+        }
+
+}
+
+func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File <span class="cov8" title="1">{
+
+        file, ok := handleArray.Get(fileName)
+        if !ok </span><span class="cov8" title="1">{
+                var err error
+                file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+
+                if err != nil </span><span class="cov0" title="0">{
+                        file, err = os.OpenFile("../"+utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644) //this is for go test //TODO: any better way?
+                        if err != nil </span><span class="cov0" title="0">{
+                                panic(err)</span>
+                        }
+                }
+                <span class="cov8" title="1">handleArray.Set(fileName, file)</span>
+        }
+        <span class="cov8" title="1">return file</span>
+}
+
+func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov8" title="1">{
+        file := prepareFileHandles(id+".aof", dataFileHandles)
+        reader := bufio.NewReader(file)
+
+        //seek the last x bytes using offset
+        // line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
+        // 26 * count
+        _, err := file.Seek(int64(-26*count), io.SeekEnd)
+        if err != nil </span><span class="cov8" title="1">{
+                //if the file is smaller than the offset, seek to the beginning
+                file.Seek(0, io.SeekStart)
+        }</span>
+
+        <span class="cov8" title="1">var dataPoints []models.DataPoint
+        for </span><span class="cov8" title="1">{
+                line, err := reader.ReadString('\n')
+                if err != nil </span><span class="cov8" title="1">{
+                        if err == io.EOF </span><span class="cov8" title="1">{
+                                break</span>
+                        }
+                        <span class="cov0" title="0">utils.Error("Error reading file: %v", err)
+                        return nil, err</span>
+                }
+
+                <span class="cov8" title="1">parts := strings.Split(strings.TrimSpace(line), ",")
+                //utils.Debugln(parts)
+                trimmedTimestamp := strings.TrimSpace(parts[0])
+                timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
+                trimmedValue := strings.TrimSpace(parts[1])
+                value, _ := strconv.ParseFloat(trimmedValue, 64)
+
+                dataPoints = append(dataPoints, models.DataPoint{
+                        ID:        id,
+                        Timestamp: timestamp,
+                        Value:     value,
+                })</span>
+        }
+
+        <span class="cov8" title="1">return dataPoints, nil</span>
+}
 
 func readMetaCount(metaFile *os.File) int <span class="cov8" title="1">{
         _, err := metaFile.Seek(0, io.SeekStart)
@@ -138,43 +316,15 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span cl
         line := fmt.Sprintf("%d,%d\n", timestamp, offset)
         indexFile.WriteString(line)
 }</span>
-func dataFileById(id string) *os.File <span class="cov8" title="1">{
-        filename := id + ".aof"
-
-        file, ok := dataFileHandles.Get(filename)
-        if !ok </span><span class="cov8" title="1">{
-                var err error
-                file, err = os.OpenFile(utils.DataDir+"/"+filename, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-                if err != nil </span><span class="cov0" title="0">{
-                        utils.Error("Error opening file: %v", err)
-                        return nil
-                }</span>
-                <span class="cov8" title="1">dataFileHandles.Set(filename, file)</span>
-        }
-        <span class="cov8" title="1">return file</span>
-}
-func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
-
-        dataPoints := readBufferedDataPoints(id, startTime, endTime)
-        if len(dataPoints) == 0 </span><span class="cov8" title="1">{
-                dataPoints = readFiledDataPoints(id, startTime, endTime)
-        }</span>
-
-        <span class="cov8" title="1">if downsample &gt; 1 </span><span class="cov8" title="1">{
-                dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
-        }</span>
-
-        <span class="cov8" title="1">return dataPoints</span>
-}
 
 func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
-        file := dataFileById(id)
+        file := prepareFileHandles(id+".aof", dataFileHandles)
         var dataPoints []models.DataPoint
         reader := bufio.NewReader(file)
 
         indexFilename := id + ".idx"
         indexFile, ok := indexFileHandles.Get(indexFilename)
-        if ok </span><span class="cov0" title="0">{
+        if ok </span><span class="cov8" title="1">{
                 indexReader := bufio.NewReader(indexFile)
                 var offset int64
 
@@ -184,10 +334,16 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
                         return nil
                 }</span>
 
-                <span class="cov0" title="0">for </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">for </span><span class="cov8" title="1">{
                         line, err := indexReader.ReadString('\n')
-                        if err != nil </span><span class="cov0" title="0">{
-                                break</span>
+                        if err != nil </span><span class="cov8" title="1">{
+                                if err == io.EOF </span><span class="cov8" title="1">{
+                                        break</span>
+                                } else<span class="cov0" title="0"> {
+                                        utils.Error("Error reading index file: %v", err)
+                                        return nil
+                                }</span>
+
                         }
 
                         <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
@@ -198,12 +354,12 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
                         <span class="cov0" title="0">offset, _ = strconv.ParseInt(parts[1], 10, 64)</span>
                 }
 
-                <span class="cov0" title="0">_, err = file.Seek(offset, io.SeekStart)
+                <span class="cov8" title="1">_, err = file.Seek(offset, io.SeekStart)
                 if err != nil </span><span class="cov0" title="0">{
                         utils.Error("Error seeking data file: %v", err)
                         return nil
                 }</span>
-        } else<span class="cov8" title="1"> {
+        } else<span class="cov0" title="0"> {
                 _, err := file.Seek(0, io.SeekStart)
                 if err != nil </span><span class="cov0" title="0">{
                         utils.Error("Error seeking data file: %v", err)
@@ -241,61 +397,56 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
         <span class="cov8" title="1">return dataPoints</span>
 }
 
-func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="cov0" title="0">{
-
-        dataPoints := readLastBufferedDataPoints(id, count)
-        fmt.Println("dataPoints", dataPoints)
-        fmt.Println("Count", count)
-        if len(dataPoints) &lt; count </span><span class="cov0" title="0">{
-
-                remaining := count - len(dataPoints)
-                lastDataPoints, err := readLastFiledDataPoints(id, remaining)
-                if err == nil </span><span class="cov0" title="0">{
-                        dataPoints = append(dataPoints, lastDataPoints...)
-                }</span>
-        }
-
-        <span class="cov0" title="0">return dataPoints</span>
-}
-
-func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov0" title="0">{
-        file := dataFileById(id)
-        reader := bufio.NewReader(file)
-
-        //seek the last x bytes using offset
-        // line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
-        // 26 * count
-        _, err := file.Seek(int64(-26*count), io.SeekEnd)
-        if err != nil </span><span class="cov0" title="0">{
-                //if the file is smaller than the offset, seek to the beginning
-                file.Seek(0, io.SeekStart)
+func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
+        if cacheSize == 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
         }</span>
 
-        <span class="cov0" title="0">var dataPoints []models.DataPoint
-        for </span><span class="cov0" title="0">{
-                line, err := reader.ReadString('\n')
-                if err != nil </span><span class="cov0" title="0">{
-                        if err == io.EOF </span><span class="cov0" title="0">{
-                                break</span>
-                        }
-                        <span class="cov0" title="0">utils.Error("Error reading file: %v", err)
-                        return nil, err</span>
-                }
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
 
-                <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
-                trimmedTimestamp := strings.TrimSpace(parts[0])
-                timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
-                trimmedValue := strings.TrimSpace(parts[1])
-                value, _ := strconv.ParseFloat(trimmedValue, 64)
-
-                dataPoints = append(dataPoints, models.DataPoint{
-                        ID:        id,
-                        Timestamp: timestamp,
-                        Value:     value,
-                })</span>
+        <span class="cov8" title="1">var result []models.DataPoint
+        for i := 0; i &lt; rb.Size(); i++ </span><span class="cov8" title="1">{
+                dataPoint := rb.Get(i)
+                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
+                        result = append(result, dataPoint)
+                }</span>
         }
+        <span class="cov8" title="1">return result</span>
+}
 
-        <span class="cov0" title="0">return dataPoints, nil</span>
+func checkIfBufferHasEnoughDataPoints(id string, count int) bool <span class="cov8" title="1">{
+        rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov0" title="0">{
+                return false
+        }</span>
+        <span class="cov8" title="1">return rb.Size() &gt;= count</span>
+}
+
+func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
+        if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov8" title="1">{
+                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
+        }</span>
+
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
+        if !ok </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov8" title="1">if count &gt; rb.Size() </span><span class="cov0" title="0">{
+                count = rb.Size()
+        }</span>
+        <span class="cov8" title="1">if count == 0 </span><span class="cov0" title="0">{
+                return []models.DataPoint{}
+        }</span>
+
+        <span class="cov8" title="1">result := make([]models.DataPoint, count)
+        for i := 0; i &lt; count; i++ </span><span class="cov8" title="1">{
+                result[i] = rb.Get(rb.Size() - count + i)
+        }</span>
+        <span class="cov8" title="1">return result</span>
 }
 
 func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
@@ -318,15 +469,15 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                                 switch aggregation </span>{
                                 case "avg":<span class="cov8" title="1">
                                         value = intervalSum / float64(intervalCount)</span>
-                                case "sum":<span class="cov0" title="0">
+                                case "sum":<span class="cov8" title="1">
                                         value = intervalSum</span>
-                                case "min":<span class="cov0" title="0">
+                                case "min":<span class="cov8" title="1">
                                         value = intervalMin</span>
-                                case "max":<span class="cov0" title="0">
+                                case "max":<span class="cov8" title="1">
                                         value = intervalMax</span>
-                                case "first":<span class="cov0" title="0">
+                                case "first":<span class="cov8" title="1">
                                         value = intervalFirst</span>
-                                case "last":<span class="cov0" title="0">
+                                case "last":<span class="cov8" title="1">
                                         value = intervalLast</span>
                                 default:<span class="cov0" title="0">
                                         value = intervalSum / float64(intervalCount)</span>
@@ -365,15 +516,15 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                 switch aggregation </span>{
                 case "avg":<span class="cov8" title="1">
                         value = intervalSum / float64(intervalCount)</span>
-                case "sum":<span class="cov0" title="0">
+                case "sum":<span class="cov8" title="1">
                         value = intervalSum</span>
-                case "min":<span class="cov0" title="0">
+                case "min":<span class="cov8" title="1">
                         value = intervalMin</span>
                 case "max":<span class="cov8" title="1">
                         value = intervalMax</span>
-                case "first":<span class="cov0" title="0">
+                case "first":<span class="cov8" title="1">
                         value = intervalFirst</span>
-                case "last":<span class="cov0" title="0">
+                case "last":<span class="cov8" title="1">
                         value = intervalLast</span>
                 default:<span class="cov0" title="0">
                         value = intervalSum / float64(intervalCount)</span>
@@ -386,159 +537,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
         }
 
         <span class="cov8" title="1">return downsampled</span>
-}
-
-func FormatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
-        var response string
-
-        for i, dp := range dataPoints </span><span class="cov8" title="1">{
-                response += fmt.Sprintf("%s,%d,%.2f", dp.ID, dp.Timestamp, dp.Value)
-                if i &lt; len(dataPoints)-1 </span><span class="cov8" title="1">{
-                        response += "|"
-                }</span>
-        }
-
-        <span class="cov8" title="1">response += "\n"
-
-        return response</span>
-}
-
-// JsonFormatDataPoints
-func JsonFormatDataPoints(dataPoints []models.DataPoint) string <span class="cov0" title="0">{
-        var response string
-        //use json marshal to format the data points
-        bytes, _ := json.Marshal(dataPoints)
-        response = string(bytes)
-        return response
-}</span>
-</pre>
-		
-		<pre class="file" id="file1" style="display: none">package buffer
-
-import (
-        "fmt"
-        "gtsdb/concurrent"
-        "gtsdb/models"
-        "gtsdb/synchronous"
-        "gtsdb/utils"
-        "io"
-        "os"
-)
-
-func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
-        if cacheSize == 0 </span><span class="cov0" title="0">{
-                storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
-                return
-        }</span>
-
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(dataPoint.ID)
-        if !ok </span><span class="cov8" title="1">{
-                rb = synchronous.NewRingBuffer[models.DataPoint](cacheSize)
-                idToRingBufferMap.Set(dataPoint.ID, rb)
-        }</span>
-        <span class="cov8" title="1">rb.Push(dataPoint)
-
-        storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
-        lastValue[dataPoint.ID] = dataPoint.Value
-        lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
-}
-
-func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
-        if cacheSize == 0 </span><span class="cov0" title="0">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
-        if !ok </span><span class="cov8" title="1">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov8" title="1">var result []models.DataPoint
-        for i := 0; i &lt; rb.Size(); i++ </span><span class="cov8" title="1">{
-                dataPoint := rb.Get(i)
-                if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
-                        result = append(result, dataPoint)
-                }</span>
-        }
-        <span class="cov8" title="1">return result</span>
-}
-
-func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
-        if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov0" title="0">{
-                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
-        }</span>
-
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
-        if !ok </span><span class="cov0" title="0">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov8" title="1">if count &gt; rb.Size() </span><span class="cov0" title="0">{
-                count = rb.Size()
-        }</span>
-        <span class="cov8" title="1">if count == 0 </span><span class="cov0" title="0">{
-                return []models.DataPoint{}
-        }</span>
-
-        <span class="cov8" title="1">result := make([]models.DataPoint, count)
-        for i := 0; i &lt; count; i++ </span><span class="cov8" title="1">{
-                result[i] = rb.Get(rb.Size() - count + i)
-        }</span>
-        <span class="cov8" title="1">return result</span>
-}
-
-func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
-        dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
-        metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
-        indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
-        for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
-
-                line := fmt.Sprintf("%d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
-                dataFile.WriteString(line)
-                count := readMetaCount(metaFile)
-                count++
-                writeMetaCount(metaFile, count)
-
-                if count%indexInterval == 0 </span><span class="cov0" title="0">{
-
-                        //end position of this file
-                        offset, _ := dataFile.Seek(0, io.SeekEnd)
-                        offset -= int64(len(line))
-                        updateIndexFile(indexFile, dataPoint.Timestamp, offset)
-                }</span>
-        }
-
-}
-func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File <span class="cov8" title="1">{
-
-        file, ok := handleArray.Get(fileName)
-        if !ok </span><span class="cov8" title="1">{
-                var err error
-                file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-
-                if err != nil </span><span class="cov0" title="0">{
-                        file, err = os.OpenFile("../"+utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644) //this is for go test //TODO: any better way?
-                        if err != nil </span><span class="cov0" title="0">{
-                                panic(err)</span>
-                        }
-                }
-                <span class="cov8" title="1">handleArray.Set(fileName, file)</span>
-        }
-        <span class="cov8" title="1">return file</span>
-}
-
-func FlushRemainingDataPoints() <span class="cov8" title="1">{
-
-        //fsync all file handles
-        for _, file := range dataFileHandles.Values() </span><span class="cov8" title="1">{
-                file.Sync()
-        }</span>
-        <span class="cov8" title="1">for _, file := range metaFileHandles.Values() </span><span class="cov8" title="1">{
-                file.Sync()
-        }</span>
-        <span class="cov8" title="1">for _, file := range indexFileHandles.Values() </span><span class="cov8" title="1">{
-                file.Sync()
-        }</span>
 }
 </pre>
 		
@@ -578,12 +576,6 @@ func (h *HashMap[K, V]) Get(key K) (V, bool) <span class="cov8" title="1">{
         defer h.RUnlock()
         value, exists := h.items[key]
         return value, exists
-}</span>
-
-func (h *HashMap[K, V]) AssertGet(key K) V <span class="cov0" title="0">{
-        h.RLock()
-        defer h.RUnlock()
-        return h.items[key]
 }</span>
 
 // Delete removes an element from the map
@@ -878,11 +870,17 @@ func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) <span clas
         f.wg.Add(1)
 }</span>
 
-func (f *Fanout) RemoveConsumer(id int) <span class="cov0" title="0">{
+func (f *Fanout) GetConsumers() []*Consumer <span class="cov0" title="0">{
+        f.mu.RLock()
+        defer f.mu.RUnlock()
+        return f.consumers
+}</span>
+
+func (f *Fanout) RemoveConsumer(id int) <span class="cov8" title="1">{
         f.mu.Lock()
         defer f.mu.Unlock()
-        for i, c := range f.consumers </span><span class="cov0" title="0">{
-                if c.ID == id </span><span class="cov0" title="0">{
+        for i, c := range f.consumers </span><span class="cov8" title="1">{
+                if c.ID == id </span><span class="cov8" title="1">{
                         f.consumers = append(f.consumers[:i], f.consumers[i+1:]...)
                         f.wg.Done()
                         break</span>
@@ -1006,27 +1004,27 @@ import (
         "time"
 )
 
-func writeJSON(w http.ResponseWriter, response Response) <span class="cov0" title="0">{
+func writeJSON(w http.ResponseWriter, response Response) <span class="cov8" title="1">{
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(response)
 }</span>
 
-func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler <span class="cov0" title="0">{
+func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler <span class="cov8" title="1">{
         mux := http.NewServeMux()
 
-        mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov0" title="0">{
-                if r.Method != http.MethodPost </span><span class="cov0" title="0">{
+        mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
+                if r.Method != http.MethodPost </span><span class="cov8" title="1">{
                         writeJSON(w, Response{Success: false, Message: "Method not allowed"})
                         return
                 }</span>
 
-                <span class="cov0" title="0">var op Operation
+                <span class="cov8" title="1">var op Operation
                 if err := json.NewDecoder(r.Body).Decode(&amp;op); err != nil </span><span class="cov0" title="0">{
                         writeJSON(w, Response{Success: false, Message: "Invalid request body"})
                         return
                 }</span>
 
-                <span class="cov0" title="0">if op.Operation == "subscribe" </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">if op.Operation == "subscribe" </span><span class="cov0" title="0">{
                         if op.DeviceID == "" </span><span class="cov0" title="0">{
                                 writeJSON(w, Response{Success: false, Message: "Device ID required"})
                                 return
@@ -1035,11 +1033,11 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler <span class="cov
                         return</span>
                 }
 
-                <span class="cov0" title="0">response := HandleOperation(op)
+                <span class="cov8" title="1">response := HandleOperation(op)
                 writeJSON(w, response)</span>
         })
 
-        <span class="cov0" title="0">return mux</span>
+        <span class="cov8" title="1">return mux</span>
 }
 
 func handleSSE(w http.ResponseWriter, deviceID string, fanoutManager *fanout.Fanout) <span class="cov0" title="0">{
@@ -1073,9 +1071,9 @@ func handleSSE(w http.ResponseWriter, deviceID string, fanoutManager *fanout.Fan
 import (
         "bufio"
         "encoding/json"
-        "fmt"
         "gtsdb/fanout"
         "gtsdb/models"
+        "gtsdb/utils"
 
         "math/rand"
         "net"
@@ -1083,58 +1081,58 @@ import (
         "time"
 )
 
-func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) <span class="cov0" title="0">{
+func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) <span class="cov8" title="1">{
         defer conn.Close()
         id := rand.Intn(1000) + int(time.Now().UnixNano())
         scanner := bufio.NewScanner(conn)
         subscribingDevices := []string{}
 
-        for scanner.Scan() </span><span class="cov0" title="0">{
+        for scanner.Scan() </span><span class="cov8" title="1">{
                 var op Operation
-                if err := json.Unmarshal(scanner.Bytes(), &amp;op); err != nil </span><span class="cov0" title="0">{
+                if err := json.Unmarshal(scanner.Bytes(), &amp;op); err != nil </span><span class="cov8" title="1">{
                         response := Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()}
                         json.NewEncoder(conn).Encode(response)
                         continue</span>
                 }
 
-                <span class="cov0" title="0">if op.Operation == "subscribe" </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">if op.Operation == "subscribe" </span><span class="cov8" title="1">{
                         if op.DeviceID == "" </span><span class="cov0" title="0">{
                                 json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
                                 continue</span>
                         }
-                        <span class="cov0" title="0">subscribingDevices = append(subscribingDevices, op.DeviceID)
-                        if len(subscribingDevices) == 1 </span><span class="cov0" title="0">{
-                                fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
+                        <span class="cov8" title="1">subscribingDevices = append(subscribingDevices, op.DeviceID)
+                        if len(subscribingDevices) == 1 </span><span class="cov8" title="1">{
+                                utils.Log("Adding consumer %d %v", id, subscribingDevices)
                                 fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
                                         if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
                                                 json.NewEncoder(conn).Encode(Response{Success: true, Data: msg})
                                         }</span>
                                 })
                         }
-                        <span class="cov0" title="0">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + op.DeviceID})
+                        <span class="cov8" title="1">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + op.DeviceID})
                         continue</span>
                 }
 
-                <span class="cov0" title="0">if op.Operation == "unsubscribe" </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">if op.Operation == "unsubscribe" </span><span class="cov8" title="1">{
                         if op.DeviceID == "" </span><span class="cov0" title="0">{
                                 json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
                                 continue</span>
                         }
-                        <span class="cov0" title="0">for i, device := range subscribingDevices </span><span class="cov0" title="0">{
-                                if device == op.DeviceID </span><span class="cov0" title="0">{
+                        <span class="cov8" title="1">for i, device := range subscribingDevices </span><span class="cov8" title="1">{
+                                if device == op.DeviceID </span><span class="cov8" title="1">{
                                         subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
                                         break</span>
                                 }
                         }
-                        <span class="cov0" title="0">if len(subscribingDevices) == 0 </span><span class="cov0" title="0">{
-                                fmt.Printf("Removing consumer %d\n", id)
+                        <span class="cov8" title="1">if len(subscribingDevices) == 0 </span><span class="cov8" title="1">{
+                                utils.Log("Removing consumer %d", id)
                                 fanoutManager.RemoveConsumer(id)
                         }</span>
-                        <span class="cov0" title="0">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.DeviceID})
+                        <span class="cov8" title="1">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.DeviceID})
                         continue</span>
                 }
 
-                <span class="cov0" title="0">response := HandleOperation(op)
+                <span class="cov8" title="1">response := HandleOperation(op)
                 json.NewEncoder(conn).Encode(response)</span>
         }
 }
@@ -1143,7 +1141,6 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) <span clas
 		<pre class="file" id="file9" style="display: none">package main
 
 import (
-        "fmt"
         "gtsdb/buffer"
         "gtsdb/fanout"
         "gtsdb/handlers"
@@ -1189,7 +1186,7 @@ func main() <span class="cov0" title="0">{
 func startTCPServer() <span class="cov0" title="0">{
         listener, err := net.Listen("tcp", tcpListenAddr)
         if err != nil </span><span class="cov0" title="0">{
-                fmt.Println("Error listening:", err)
+                utils.Errorln("Error listening:", err)
                 os.Exit(1)
         }</span>
         <span class="cov0" title="0">defer listener.Close()
@@ -1199,7 +1196,7 @@ func startTCPServer() <span class="cov0" title="0">{
         for </span><span class="cov0" title="0">{
                 conn, err := listener.Accept()
                 if err != nil </span><span class="cov0" title="0">{
-                        fmt.Println("Error accepting connection:", err)
+                        utils.Errorln("Error accepting connection:", err)
                         continue</span>
                 }
                 <span class="cov0" title="0">go handlers.HandleTcpConnection(conn, fanoutManager)</span>
@@ -1305,23 +1302,23 @@ func Debug(message string, args ...interface{}) <span class="cov8" title="1">{
         fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprintf(message, args...))
 }</span>
 
-func Logln(messages ...interface{}) <span class="cov0" title="0">{
+func Logln(messages ...interface{}) <span class="cov8" title="1">{
         fmt.Printf("[%s] 🐹 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
-func Errorln(messages ...interface{}) <span class="cov0" title="0">{
+func Errorln(messages ...interface{}) <span class="cov8" title="1">{
         fmt.Printf("[%s] 😡 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
-func Warningln(messages ...interface{}) <span class="cov0" title="0">{
+func Warningln(messages ...interface{}) <span class="cov8" title="1">{
         fmt.Printf("[%s] 😟 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
-func Debugln(messages ...interface{}) <span class="cov0" title="0">{
+func Debugln(messages ...interface{}) <span class="cov8" title="1">{
         fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
 
-func SetupTestFiles() (string, func()) <span class="cov0" title="0">{
+func SetupTestFiles() (string, func()) <span class="cov8" title="1">{
         // Create temporary directory
         tmpDir, err := os.MkdirTemp("", "gtsdb_test")
         if err != nil </span><span class="cov0" title="0">{
@@ -1331,11 +1328,11 @@ func SetupTestFiles() (string, func()) <span class="cov0" title="0">{
         }</span>
 
         // Return cleanup function
-        <span class="cov0" title="0">cleanup := func() </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">cleanup := func() </span><span class="cov8" title="1">{
                 os.RemoveAll(tmpDir)
         }</span>
 
-        <span class="cov0" title="0">return tmpDir, cleanup</span>
+        <span class="cov8" title="1">return tmpDir, cleanup</span>
 }
 </pre>
 		

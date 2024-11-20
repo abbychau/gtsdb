@@ -3,9 +3,9 @@ package handlers
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"gtsdb/fanout"
 	"gtsdb/models"
+	"gtsdb/utils"
 
 	"math/rand"
 	"net"
@@ -34,7 +34,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			}
 			subscribingDevices = append(subscribingDevices, op.DeviceID)
 			if len(subscribingDevices) == 1 {
-				fmt.Printf("Adding consumer %d %v\n", id, subscribingDevices)
+				utils.Log("Adding consumer %d %v", id, subscribingDevices)
 				fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
 					if slices.Contains(subscribingDevices, msg.ID) {
 						json.NewEncoder(conn).Encode(Response{Success: true, Data: msg})
@@ -57,7 +57,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				}
 			}
 			if len(subscribingDevices) == 0 {
-				fmt.Printf("Removing consumer %d\n", id)
+				utils.Log("Removing consumer %d", id)
 				fanoutManager.RemoveConsumer(id)
 			}
 			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.DeviceID})
