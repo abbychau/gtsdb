@@ -55,29 +55,23 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (80.5%)</option>
+				<option value="file0">gtsdb/buffer/external.go (87.2%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (78.3%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (85.0%)</option>
 				
-				<option value="file2">gtsdb/concurrent/hashmap.go (78.1%)</option>
+				<option value="file2">gtsdb/concurrent/hashmap.go (96.9%)</option>
 				
 				<option value="file3">gtsdb/concurrent/lru.go (100.0%)</option>
 				
 				<option value="file4">gtsdb/concurrent/set.go (91.3%)</option>
 				
-				<option value="file5">gtsdb/fanout/fanout.go (83.3%)</option>
+				<option value="file5">gtsdb/fanout/fanout.go (84.0%)</option>
 				
-				<option value="file6">gtsdb/handlers/common.go (92.0%)</option>
+				<option value="file6">gtsdb/main.go (66.7%)</option>
 				
-				<option value="file7">gtsdb/handlers/httpHandler.go (37.1%)</option>
+				<option value="file7">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
 				
-				<option value="file8">gtsdb/handlers/tcpHandler.go (83.8%)</option>
-				
-				<option value="file9">gtsdb/main.go (0.0%)</option>
-				
-				<option value="file10">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
-				
-				<option value="file11">gtsdb/utils/utils.go (81.0%)</option>
+				<option value="file8">gtsdb/utils/utils.go (82.6%)</option>
 				
 				</select>
 			</div>
@@ -125,22 +119,19 @@ func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="co
                 return readLastBufferedDataPoints(id, count)
         }</span>
 
-        <span class="cov0" title="0">dataPoints, err := readLastFiledDataPoints(id, count)
+        <span class="cov8" title="1">dataPoints, err := readLastFiledDataPoints(id, count)
         if err != nil </span><span class="cov0" title="0">{
                 utils.Errorln(err)
                 return []models.DataPoint{}
         }</span>
 
-        <span class="cov0" title="0">return dataPoints</span>
+        <span class="cov8" title="1">return dataPoints</span>
 }
 
 func FlushRemainingDataPoints() <span class="cov8" title="1">{
 
         //fsync all file handles
         for _, file := range dataFileHandles.Values() </span><span class="cov8" title="1">{
-                file.Sync()
-        }</span>
-        <span class="cov8" title="1">for _, file := range metaFileHandles.Values() </span><span class="cov8" title="1">{
                 file.Sync()
         }</span>
         <span class="cov8" title="1">for _, file := range indexFileHandles.Values() </span><span class="cov8" title="1">{
@@ -199,21 +190,20 @@ import (
         "os"
         "strconv"
         "strings"
+        "sync/atomic"
 )
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
         dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
-        metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
         indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
         for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
 
                 line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
                 dataFile.WriteString(line)
-                count := readMetaCount(metaFile)
-                count++
-                writeMetaCount(metaFile, count)
+                count, _ := idToCountMap.Get(dataPointId)
+                count.Add(1)
 
-                if count%indexInterval == 0 </span><span class="cov0" title="0">{
+                if count.Load()%indexInterval == 0 </span><span class="cov8" title="1">{
 
                         //end position of this file
                         offset, _ := dataFile.Seek(0, io.SeekEnd)
@@ -232,12 +222,28 @@ func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string,
                 file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 
                 if err != nil </span><span class="cov0" title="0">{
-                        file, err = os.OpenFile("../"+utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644) //this is for go test //TODO: any better way?
-                        if err != nil </span><span class="cov0" title="0">{
-                                panic(err)</span>
+                        utils.Panic(err)
+                }</span>
+                <span class="cov8" title="1">handleArray.Set(fileName, file)
+
+                // if filename is ending with .aof
+                if strings.HasSuffix(fileName, ".aof") </span><span class="cov8" title="1">{
+                        // check idToCountMap if the id is already present
+                        _, ok := idToCountMap.Get(fileName[:len(fileName)-4])
+                        if !ok </span><span class="cov8" title="1">{
+                                // file length
+                                fileInfo, err := file.Stat()
+                                if err != nil </span><span class="cov0" title="0">{
+                                        utils.Panic(err)
+                                }</span>
+                                // set count to the length of the file / 26
+                                <span class="cov8" title="1">fileLength := fileInfo.Size()
+                                count := atomic.Int64{}
+                                count.Store(fileLength / 26)
+                                idToCountMap.Set(fileName[:len(fileName)-4], &amp;count)</span>
+
                         }
                 }
-                <span class="cov8" title="1">handleArray.Set(fileName, file)</span>
         }
         <span class="cov8" title="1">return file</span>
 }
@@ -283,36 +289,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <
         <span class="cov8" title="1">return dataPoints, nil</span>
 }
 
-func readMetaCount(metaFile *os.File) int <span class="cov8" title="1">{
-        _, err := metaFile.Seek(0, io.SeekStart)
-        if err != nil </span><span class="cov0" title="0">{
-                return 0
-        }</span>
-
-        <span class="cov8" title="1">scanner := bufio.NewScanner(metaFile)
-        if scanner.Scan() </span><span class="cov8" title="1">{
-                countStr := strings.TrimPrefix(scanner.Text(), "count:")
-                count, _ := strconv.Atoi(countStr)
-                return count
-        }</span>
-
-        <span class="cov8" title="1">return 0</span>
-}
-
-func writeMetaCount(metaFile *os.File, count int) <span class="cov8" title="1">{
-        _, err := metaFile.Seek(0, io.SeekStart)
-        if err != nil </span><span class="cov0" title="0">{
-                utils.Errorln("Error seeking meta file:", err)
-                return
-        }</span>
-        <span class="cov8" title="1">str := fmt.Sprintf("count:%d\n", count)
-        //empty the file
-        metaFile.Truncate(0)
-        metaFile.Seek(0, io.SeekStart)
-        metaFile.WriteString(str)</span>
-}
-
-func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span class="cov0" title="0">{
+func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span class="cov8" title="1">{
         line := fmt.Sprintf("%d,%d\n", timestamp, offset)
         indexFile.WriteString(line)
 }</span>
@@ -326,7 +303,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
         indexFile, ok := indexFileHandles.Get(indexFilename)
         if ok </span><span class="cov8" title="1">{
                 indexReader := bufio.NewReader(indexFile)
-                var offset int64
+                offset := int64(0)
 
                 _, err := indexFile.Seek(0, io.SeekStart)
                 if err != nil </span><span class="cov0" title="0">{
@@ -346,12 +323,12 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 
                         }
 
-                        <span class="cov0" title="0">parts := strings.Split(strings.TrimSpace(line), ",")
+                        <span class="cov8" title="1">parts := strings.Split(strings.TrimSpace(line), ",")
                         timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
-                        if timestamp &gt; startTime </span><span class="cov0" title="0">{
+                        if timestamp &gt; startTime </span><span class="cov8" title="1">{
                                 break</span>
                         }
-                        <span class="cov0" title="0">offset, _ = strconv.ParseInt(parts[1], 10, 64)</span>
+                        <span class="cov8" title="1">offset, _ = strconv.ParseInt(parts[1], 10, 64)</span>
                 }
 
                 <span class="cov8" title="1">_, err = file.Seek(offset, io.SeekStart)
@@ -617,14 +594,14 @@ func (h *HashMap[K, V]) ForEach(fn func(key K, value V)) <span class="cov8" titl
 }
 
 // Values
-func (h *HashMap[K, V]) Values() []V <span class="cov0" title="0">{
+func (h *HashMap[K, V]) Values() []V <span class="cov8" title="1">{
         h.RLock()
         defer h.RUnlock()
         values := make([]V, 0, len(h.items))
-        for _, v := range h.items </span><span class="cov0" title="0">{
+        for _, v := range h.items </span><span class="cov8" title="1">{
                 values = append(values, v)
         }</span>
-        <span class="cov0" title="0">return values</span>
+        <span class="cov8" title="1">return values</span>
 }
 </pre>
 		
@@ -852,14 +829,12 @@ type Fanout struct {
 }
 
 func NewFanout() *Fanout <span class="cov8" title="1">{
-        return &amp;Fanout{
+        fanoutManager := &amp;Fanout{
                 consumers: make([]*Consumer, 0),
                 messageCh: make(chan models.DataPoint),
         }
-}</span>
-
-func (f *Fanout) Start() <span class="cov8" title="1">{
-        go f.producer()
+        go fanoutManager.producer()
+        return fanoutManager
 }</span>
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) <span class="cov8" title="1">{
@@ -907,238 +882,7 @@ func (f *Fanout) producer() <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file6" style="display: none">package handlers
-
-import (
-        "gtsdb/buffer"
-        "gtsdb/models"
-        "time"
-)
-
-type WriteRequest struct {
-        ID        string  `json:"id"`
-        Value     float64 `json:"value"`
-        Timestamp int64   `json:"timestamp,omitempty"`
-}
-
-type ReadRequest struct {
-        ID          string `json:"id"`
-        StartTime   int64  `json:"startTime,omitempty"`
-        EndTime     int64  `json:"endTime,omitempty"`
-        Downsample  int    `json:"downsample,omitempty"`
-        LastX       int    `json:"lastx,omitempty"`
-        Aggregation string `json:"aggregation,omitempty"`
-}
-
-type Operation struct {
-        Operation string        `json:"operation"` // "write", "read", "flush", "subscribe"
-        Write     *WriteRequest `json:"write,omitempty"`
-        Read      *ReadRequest  `json:"read,omitempty"`
-        DeviceID  string        `json:"deviceId,omitempty"`
-}
-
-type Response struct {
-        Success bool        `json:"success"`
-        Message string      `json:"message,omitempty"`
-        Data    interface{} `json:"data,omitempty"`
-}
-
-func HandleOperation(op Operation) Response <span class="cov8" title="1">{
-        switch op.Operation </span>{
-        case "write":<span class="cov8" title="1">
-                if op.Write == nil </span><span class="cov8" title="1">{
-                        return Response{Success: false, Message: "Write data required"}
-                }</span>
-                <span class="cov8" title="1">if op.Write.Timestamp &lt;= 0 </span><span class="cov8" title="1">{
-                        op.Write.Timestamp = time.Now().Unix()
-                }</span>
-                <span class="cov8" title="1">dataPoint := models.DataPoint{
-                        ID:        op.Write.ID,
-                        Timestamp: op.Write.Timestamp,
-                        Value:     op.Write.Value,
-                }
-                buffer.StoreDataPointBuffer(dataPoint)
-                return Response{Success: true, Message: "Data point stored"}</span>
-
-        case "read":<span class="cov8" title="1">
-                if op.Read == nil </span><span class="cov8" title="1">{
-                        return Response{Success: false, Message: "Read parameters required"}
-                }</span>
-                <span class="cov8" title="1">if op.Read.Aggregation == "" </span><span class="cov8" title="1">{
-                        op.Read.Aggregation = "avg"
-                }</span>
-
-                <span class="cov8" title="1">var response []models.DataPoint
-                if op.Read.LastX &gt; 0 || (op.Read.StartTime == 0 &amp;&amp; op.Read.EndTime == 0) </span><span class="cov8" title="1">{
-                        last := op.Read.LastX
-                        if last == 0 </span><span class="cov0" title="0">{
-                                last = 1
-                        }</span>
-                        <span class="cov8" title="1">if last &lt; 0 </span><span class="cov0" title="0">{
-                                last = last * -1
-                        }</span>
-                        <span class="cov8" title="1">response = buffer.ReadLastDataPoints(op.Read.ID, last)</span>
-                } else<span class="cov8" title="1"> {
-                        response = buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
-                }</span>
-                <span class="cov8" title="1">return Response{Success: true, Data: response}</span>
-
-        case "flush":<span class="cov8" title="1">
-                buffer.FlushRemainingDataPoints()
-                return Response{Success: true, Message: "Data points flushed"}</span>
-
-        default:<span class="cov8" title="1">
-                return Response{Success: false, Message: "Invalid operation"}</span>
-        }
-}
-</pre>
-		
-		<pre class="file" id="file7" style="display: none">package handlers
-
-import (
-        "encoding/json"
-        "fmt"
-        "gtsdb/fanout"
-        "gtsdb/models"
-        "net/http"
-        "time"
-)
-
-func writeJSON(w http.ResponseWriter, response Response) <span class="cov8" title="1">{
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(response)
-}</span>
-
-func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler <span class="cov8" title="1">{
-        mux := http.NewServeMux()
-
-        mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="1">{
-                if r.Method != http.MethodPost </span><span class="cov8" title="1">{
-                        writeJSON(w, Response{Success: false, Message: "Method not allowed"})
-                        return
-                }</span>
-
-                <span class="cov8" title="1">var op Operation
-                if err := json.NewDecoder(r.Body).Decode(&amp;op); err != nil </span><span class="cov0" title="0">{
-                        writeJSON(w, Response{Success: false, Message: "Invalid request body"})
-                        return
-                }</span>
-
-                <span class="cov8" title="1">if op.Operation == "subscribe" </span><span class="cov0" title="0">{
-                        if op.DeviceID == "" </span><span class="cov0" title="0">{
-                                writeJSON(w, Response{Success: false, Message: "Device ID required"})
-                                return
-                        }</span>
-                        <span class="cov0" title="0">handleSSE(w, op.DeviceID, fanoutManager)
-                        return</span>
-                }
-
-                <span class="cov8" title="1">response := HandleOperation(op)
-                writeJSON(w, response)</span>
-        })
-
-        <span class="cov8" title="1">return mux</span>
-}
-
-func handleSSE(w http.ResponseWriter, deviceID string, fanoutManager *fanout.Fanout) <span class="cov0" title="0">{
-        w.Header().Set("Content-Type", "text/event-stream")
-        w.Header().Set("Cache-Control", "no-cache")
-        w.Header().Set("Connection", "keep-alive")
-
-        flusher, ok := w.(http.Flusher)
-        if !ok </span><span class="cov0" title="0">{
-                http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-                return
-        }</span>
-
-        <span class="cov0" title="0">id := time.Now().UnixNano()
-        fanoutManager.AddConsumer(int(id), func(msg models.DataPoint) </span><span class="cov0" title="0">{
-                if msg.ID == deviceID </span><span class="cov0" title="0">{
-                        resp := Response{Success: true, Data: msg}
-                        jsonData, _ := json.Marshal(resp)
-                        fmt.Fprintf(w, "data: %s\n\n", jsonData)
-                        flusher.Flush()
-                }</span>
-        })
-
-        // Wait until connection is closed
-        <span class="cov0" title="0">select </span>{}
-}
-</pre>
-		
-		<pre class="file" id="file8" style="display: none">package handlers
-
-import (
-        "bufio"
-        "encoding/json"
-        "gtsdb/fanout"
-        "gtsdb/models"
-        "gtsdb/utils"
-
-        "math/rand"
-        "net"
-        "slices"
-        "time"
-)
-
-func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) <span class="cov8" title="1">{
-        defer conn.Close()
-        id := rand.Intn(1000) + int(time.Now().UnixNano())
-        scanner := bufio.NewScanner(conn)
-        subscribingDevices := []string{}
-
-        for scanner.Scan() </span><span class="cov8" title="1">{
-                var op Operation
-                if err := json.Unmarshal(scanner.Bytes(), &amp;op); err != nil </span><span class="cov8" title="1">{
-                        response := Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()}
-                        json.NewEncoder(conn).Encode(response)
-                        continue</span>
-                }
-
-                <span class="cov8" title="1">if op.Operation == "subscribe" </span><span class="cov8" title="1">{
-                        if op.DeviceID == "" </span><span class="cov0" title="0">{
-                                json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">subscribingDevices = append(subscribingDevices, op.DeviceID)
-                        if len(subscribingDevices) == 1 </span><span class="cov8" title="1">{
-                                utils.Log("Adding consumer %d %v", id, subscribingDevices)
-                                fanoutManager.AddConsumer(id, func(msg models.DataPoint) </span><span class="cov0" title="0">{
-                                        if slices.Contains(subscribingDevices, msg.ID) </span><span class="cov0" title="0">{
-                                                json.NewEncoder(conn).Encode(Response{Success: true, Data: msg})
-                                        }</span>
-                                })
-                        }
-                        <span class="cov8" title="1">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + op.DeviceID})
-                        continue</span>
-                }
-
-                <span class="cov8" title="1">if op.Operation == "unsubscribe" </span><span class="cov8" title="1">{
-                        if op.DeviceID == "" </span><span class="cov0" title="0">{
-                                json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">for i, device := range subscribingDevices </span><span class="cov8" title="1">{
-                                if device == op.DeviceID </span><span class="cov8" title="1">{
-                                        subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
-                                        break</span>
-                                }
-                        }
-                        <span class="cov8" title="1">if len(subscribingDevices) == 0 </span><span class="cov8" title="1">{
-                                utils.Log("Removing consumer %d", id)
-                                fanoutManager.RemoveConsumer(id)
-                        }</span>
-                        <span class="cov8" title="1">json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.DeviceID})
-                        continue</span>
-                }
-
-                <span class="cov8" title="1">response := HandleOperation(op)
-                json.NewEncoder(conn).Encode(response)</span>
-        }
-}
-</pre>
-		
-		<pre class="file" id="file9" style="display: none">package main
+		<pre class="file" id="file6" style="display: none">package main
 
 import (
         "gtsdb/buffer"
@@ -1150,66 +894,76 @@ import (
         "os"
         "os/signal"
         "time"
-)
 
-var fanoutManager = fanout.NewFanout()
-
-const (
-        tcpListenAddr  = ":5555"
-        httpListenAddr = ":5556"
+        "gopkg.in/ini.v1"
 )
 
 func main() <span class="cov0" title="0">{
-        utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
-        utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
-        utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
-        utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
-
+        loadConfig("gtsdb.ini")
         utils.InitDataDirectory()
-        fanoutManager.Start() //this will start 2 go routines in the background
+        fanoutManager := fanout.NewFanout()
+        go startTCPServer(fanoutManager)
+        go startHTTPServer(fanoutManager)
 
-        // Start both TCP and HTTP servers
-        go startTCPServer()
-        go startHTTPServer()
-
-        // Wait for interrupt signal
         c := make(chan os.Signal, 1)
         signal.Notify(c, os.Interrupt)
         &lt;-c
-
-        utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
-        buffer.FlushRemainingDataPoints()
-        utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
-        os.Exit(0)
+        gracefulShutdown()
 }</span>
 
-func startTCPServer() <span class="cov0" title="0">{
-        listener, err := net.Listen("tcp", tcpListenAddr)
+func startTCPServer(fanoutManager *fanout.Fanout) <span class="cov8" title="1">{
+        listener, err := net.Listen("tcp", utils.TcpListenAddr)
         if err != nil </span><span class="cov0" title="0">{
                 utils.Errorln("Error listening:", err)
                 os.Exit(1)
         }</span>
-        <span class="cov0" title="0">defer listener.Close()
+        <span class="cov8" title="1">defer listener.Close()
 
-        utils.Logln("👂 用心監聽 TCP " + tcpListenAddr)
+        utils.Logln("👂 用心監聽 TCP " + utils.TcpListenAddr)
 
-        for </span><span class="cov0" title="0">{
+        for </span><span class="cov8" title="1">{
                 conn, err := listener.Accept()
                 if err != nil </span><span class="cov0" title="0">{
                         utils.Errorln("Error accepting connection:", err)
                         continue</span>
                 }
-                <span class="cov0" title="0">go handlers.HandleTcpConnection(conn, fanoutManager)</span>
+                <span class="cov8" title="1">go handlers.HandleTcpConnection(conn, fanoutManager)</span>
         }
 }
 
-func startHTTPServer() <span class="cov0" title="0">{
-        utils.Log("👂 用心監聽 HTTP " + httpListenAddr)
-        http.ListenAndServe(httpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
+func startHTTPServer(fanoutManager *fanout.Fanout) <span class="cov8" title="1">{
+        utils.Log("👂 用心監聽 HTTP " + utils.HttpListenAddr)
+        http.ListenAndServe(utils.HttpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
+}</span>
+
+func loadConfig(iniFile string) <span class="cov8" title="1">{
+        utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
+        utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
+        utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
+        utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
+
+        cfg, err := ini.Load(iniFile)
+        if err != nil </span><span class="cov8" title="1">{
+                utils.Warningln("無法讀取配置文件：", err)
+        }</span> else<span class="cov8" title="1"> {
+                utils.TcpListenAddr = cfg.Section("listens").Key("tcp").String()
+                utils.HttpListenAddr = cfg.Section("listens").Key("http").String()
+                utils.DataDir = cfg.Section("paths").Key("data").String()
+        }</span>
+
+        <span class="cov8" title="1">utils.Logln("TCP 監聽地址：", utils.TcpListenAddr)
+        utils.Logln("HTTP 監聽地址：", utils.HttpListenAddr)
+        utils.Logln("數據存儲目錄：", utils.DataDir)</span>
+}
+
+func gracefulShutdown() <span class="cov8" title="1">{
+        utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
+        buffer.FlushRemainingDataPoints()
+        utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
 }</span>
 </pre>
 		
-		<pre class="file" id="file10" style="display: none">package synchronous
+		<pre class="file" id="file7" style="display: none">package synchronous
 
 type RingBuffer[T any] struct {
         buffer []T
@@ -1262,7 +1016,7 @@ func (rb *RingBuffer[T]) Capacity() int <span class="cov0" title="0">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file11" style="display: none">package utils
+		<pre class="file" id="file8" style="display: none">package utils
 
 import (
         "fmt"
@@ -1270,7 +1024,11 @@ import (
         "time"
 )
 
-var DataDir = "data"
+var (
+        TcpListenAddr  = ":5555"
+        HttpListenAddr = ":5556"
+        DataDir        = "data"
+)
 
 func dateString() string <span class="cov8" title="1">{
         return time.Now().Format("2006-01-02 15:04:05")
@@ -1317,6 +1075,11 @@ func Warningln(messages ...interface{}) <span class="cov8" title="1">{
 func Debugln(messages ...interface{}) <span class="cov8" title="1">{
         fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprint(messages...))
 }</span>
+
+func Panic(v any) <span class="cov8" title="1">{
+        fmt.Printf("[%s] 🚨🐹🚨 \n", dateString()) //我被警車包圍了!
+        panic(v)</span>
+}
 
 func SetupTestFiles() (string, func()) <span class="cov8" title="1">{
         // Create temporary directory

@@ -1,5 +1,4 @@
 data/*.aof
 data/*.idx
-data/*.meta
 gtsdb
 buffer/testdata/*

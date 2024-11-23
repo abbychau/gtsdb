@@ -109,6 +109,37 @@ func TestForEach(t *testing.T) {
 	}
 }
 
+func TestValues(t *testing.T) {
+	m := NewHashMap[string, int]()
+	testData := map[string]int{
+		"one":   1,
+		"two":   2,
+		"three": 3,
+	}
+
+	for k, v := range testData {
+		m.Put(k, v)
+	}
+
+	values := m.Values()
+	if len(values) != len(testData) {
+		t.Errorf("Values: expected %d values, got %d", len(testData), len(values))
+	}
+
+	for _, v := range values {
+		found := false
+		for _, expected := range testData {
+			if v == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Values: unexpected value %d", v)
+		}
+	}
+}
+
 // go test -benchmem -run=^$ -bench ^BenchmarkHashMap$ gtsdb/concurrent -benchtime=5s
 func BenchmarkHashMap(b *testing.B) {
 	m := NewHashMap[string, int]()

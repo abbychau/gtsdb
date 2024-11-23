@@ -69,9 +69,7 @@ goos: windows
 goarch: amd64
 pkg: gtsdb
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24         1567818             22939 ns/op            4245 B/op          5 allocs/op
-PASS
-ok      gtsdb   59.321s
+BenchmarkMain-24         1218360             19854 ns/op            4245 B/op          5 allocs/op
 ```
 
 
@@ -119,7 +117,7 @@ ok      gtsdb/concurrent        62.763s
 ## Generate Test Coverage Report
 
 ```bash
-go test ./... -skip=TestMain -coverprofile=docs/coverage -p 1
+go test ./... -coverprofile=docs/coverage -p 1
 go tool cover -html docs/coverage -o docs/coverage.html
 start .\docs\coverage.html
 ```

@@ -10,48 +10,32 @@ import (
 	"os"
 	"os/signal"
 	"time"
-)
 
-var fanoutManager = fanout.NewFanout()
-
-const (
-	tcpListenAddr  = ":5555"
-	httpListenAddr = ":5556"
+	"gopkg.in/ini.v1"
 )
 
 func main() {
-	utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
-	utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
-	utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
-	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
-
+	loadConfig("gtsdb.ini")
 	utils.InitDataDirectory()
-	fanoutManager.Start() //this will start 2 go routines in the background
+	fanoutManager := fanout.NewFanout()
+	go startTCPServer(fanoutManager)
+	go startHTTPServer(fanoutManager)
 
-	// Start both TCP and HTTP servers
-	go startTCPServer()
-	go startHTTPServer()
-
-	// Wait for interrupt signal
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
-
-	utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
-	buffer.FlushRemainingDataPoints()
-	utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
-	os.Exit(0)
+	gracefulShutdown()
 }
 
-func startTCPServer() {
-	listener, err := net.Listen("tcp", tcpListenAddr)
+func startTCPServer(fanoutManager *fanout.Fanout) {
+	listener, err := net.Listen("tcp", utils.TcpListenAddr)
 	if err != nil {
 		utils.Errorln("Error listening:", err)
 		os.Exit(1)
 	}
 	defer listener.Close()
 
-	utils.Logln("👂 用心監聽 TCP " + tcpListenAddr)
+	utils.Logln("👂 用心監聽 TCP " + utils.TcpListenAddr)
 
 	for {
 		conn, err := listener.Accept()
@@ -63,7 +47,33 @@ func startTCPServer() {
 	}
 }
 
-func startHTTPServer() {
-	utils.Log("👂 用心監聽 HTTP " + httpListenAddr)
-	http.ListenAndServe(httpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
+func startHTTPServer(fanoutManager *fanout.Fanout) {
+	utils.Log("👂 用心監聽 HTTP " + utils.HttpListenAddr)
+	http.ListenAndServe(utils.HttpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
+}
+
+func loadConfig(iniFile string) {
+	utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
+	utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
+	utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
+	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
+
+	cfg, err := ini.Load(iniFile)
+	if err != nil {
+		utils.Warningln("無法讀取配置文件：", err)
+	} else {
+		utils.TcpListenAddr = cfg.Section("listens").Key("tcp").String()
+		utils.HttpListenAddr = cfg.Section("listens").Key("http").String()
+		utils.DataDir = cfg.Section("paths").Key("data").String()
+	}
+
+	utils.Logln("TCP 監聽地址：", utils.TcpListenAddr)
+	utils.Logln("HTTP 監聽地址：", utils.HttpListenAddr)
+	utils.Logln("數據存儲目錄：", utils.DataDir)
+}
+
+func gracefulShutdown() {
+	utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
+	buffer.FlushRemainingDataPoints()
+	utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
 }

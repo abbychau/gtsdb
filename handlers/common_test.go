@@ -3,9 +3,14 @@ package handlers
 import (
 	"gtsdb/buffer"
 	"gtsdb/models"
+	"gtsdb/utils"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	utils.DataDir = "../data"
+}
 
 func TestHandleOperation(t *testing.T) {
 	// Clear buffer before tests
