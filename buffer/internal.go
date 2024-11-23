@@ -10,21 +10,20 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
-	metaFile := prepareFileHandles(dataPointId+".meta", metaFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
 
 		line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
 		dataFile.WriteString(line)
-		count := readMetaCount(metaFile)
-		count++
-		writeMetaCount(metaFile, count)
+		count, _ := idToCountMap.Get(dataPointId)
+		count.Add(1)
 
-		if count%indexInterval == 0 {
+		if count.Load()%indexInterval == 0 {
 
 			//end position of this file
 			offset, _ := dataFile.Seek(0, io.SeekEnd)
@@ -43,12 +42,28 @@ func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string,
 		file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 
 		if err != nil {
-			file, err = os.OpenFile("../"+utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644) //this is for go test //TODO: any better way?
-			if err != nil {
-				panic(err)
-			}
+			utils.Panic(err)
 		}
 		handleArray.Set(fileName, file)
+
+		// if filename is ending with .aof
+		if strings.HasSuffix(fileName, ".aof") {
+			// check idToCountMap if the id is already present
+			_, ok := idToCountMap.Get(fileName[:len(fileName)-4])
+			if !ok {
+				// file length
+				fileInfo, err := file.Stat()
+				if err != nil {
+					utils.Panic(err)
+				}
+				// set count to the length of the file / 26
+				fileLength := fileInfo.Size()
+				count := atomic.Int64{}
+				count.Store(fileLength / 26)
+				idToCountMap.Set(fileName[:len(fileName)-4], &count)
+
+			}
+		}
 	}
 	return file
 }
@@ -94,35 +109,6 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	return dataPoints, nil
 }
 
-func readMetaCount(metaFile *os.File) int {
-	_, err := metaFile.Seek(0, io.SeekStart)
-	if err != nil {
-		return 0
-	}
-
-	scanner := bufio.NewScanner(metaFile)
-	if scanner.Scan() {
-		countStr := strings.TrimPrefix(scanner.Text(), "count:")
-		count, _ := strconv.Atoi(countStr)
-		return count
-	}
-
-	return 0
-}
-
-func writeMetaCount(metaFile *os.File, count int) {
-	_, err := metaFile.Seek(0, io.SeekStart)
-	if err != nil {
-		utils.Errorln("Error seeking meta file:", err)
-		return
-	}
-	str := fmt.Sprintf("count:%d\n", count)
-	//empty the file
-	metaFile.Truncate(0)
-	metaFile.Seek(0, io.SeekStart)
-	metaFile.WriteString(str)
-}
-
 func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 	line := fmt.Sprintf("%d,%d\n", timestamp, offset)
 	indexFile.WriteString(line)
@@ -137,7 +123,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	indexFile, ok := indexFileHandles.Get(indexFilename)
 	if ok {
 		indexReader := bufio.NewReader(indexFile)
-		var offset int64
+		offset := int64(0)
 
 		_, err := indexFile.Seek(0, io.SeekStart)
 		if err != nil {

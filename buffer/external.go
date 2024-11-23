@@ -47,9 +47,6 @@ func FlushRemainingDataPoints() {
 	for _, file := range dataFileHandles.Values() {
 		file.Sync()
 	}
-	for _, file := range metaFileHandles.Values() {
-		file.Sync()
-	}
 	for _, file := range indexFileHandles.Values() {
 		file.Sync()
 	}

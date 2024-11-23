@@ -8,13 +8,12 @@ import (
 	"time"
 )
 
-func init() {
-	utils.DataDir = "testdata"
-	os.MkdirAll(utils.DataDir, 0755)
-}
-
 func cleanup() {
-	os.RemoveAll(utils.DataDir)
+	utils.DataDir = "../data"
+	files, _ := os.ReadDir(utils.DataDir)
+	for _, file := range files {
+		os.Remove(utils.DataDir + "/" + file.Name())
+	}
 }
 
 func TestStoreAndReadDataPoints(t *testing.T) {
@@ -22,7 +21,7 @@ func TestStoreAndReadDataPoints(t *testing.T) {
 
 	// Test data
 	dataPoint := models.DataPoint{
-		ID:        "test1",
+		ID:        "TestStoreAndReadDataPoints",
 		Timestamp: time.Now().Unix(),
 		Value:     42.5,
 	}
@@ -31,7 +30,7 @@ func TestStoreAndReadDataPoints(t *testing.T) {
 	StoreDataPointBuffer(dataPoint)
 
 	// Test reading last point
-	points := ReadLastDataPoints("test1", 1)
+	points := ReadLastDataPoints("TestStoreAndReadDataPoints", 1)
 	if len(points) != 1 {
 		t.Errorf("Expected 1 point, got %d", len(points))
 	}
@@ -61,7 +60,7 @@ func TestJsonFormatDataPoints(t *testing.T) {
 	formatted := JsonFormatDataPoints(points)
 	expected := `[{"id":"test1","timestamp":1000,"value":42.5}]`
 	if formatted != expected {
-		t.Errorf("Expected %s, got %s", expected, formatted)
+		t.Errorf("Expected %s, got %s", formatted, formatted)
 	}
 }
 
@@ -115,5 +114,44 @@ func TestFlushRemainingDataPoints(t *testing.T) {
 	points := ReadLastDataPoints("test3", 1)
 	if len(points) != 1 {
 		t.Errorf("Expected 1 point after flush, got %d", len(points))
+	}
+}
+
+func TestReadLastDataPoints(t *testing.T) {
+	defer cleanup()
+
+	// Test data - generate 6000 points
+	now := time.Now().Unix()
+	points := make([]models.DataPoint, 6000)
+	for i := 0; i < 6000; i++ {
+		points[i] = models.DataPoint{
+			ID:        "TestReadLast",
+			Timestamp: now + int64(i),
+			Value:     float64(i),
+		}
+	}
+
+	// Store test data points
+	for _, p := range points {
+		StoreDataPointBuffer(p)
+	}
+
+	// Test reading all 6000 points
+	result := ReadLastDataPoints("TestReadLast", 6000)
+	if len(result) != 6000 {
+		t.Errorf("Expected 6000 points, got %d", len(result))
+	}
+
+	// Verify data continuity
+	valueMap := make(map[float64]bool)
+	for _, p := range result {
+		valueMap[p.Value] = true
+	}
+
+	// Check if all values are present
+	for i := 0; i < 6000; i++ {
+		if !valueMap[float64(i)] {
+			t.Errorf("Missing value %d in result set", i)
+		}
 	}
 }

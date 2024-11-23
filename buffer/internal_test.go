@@ -10,8 +10,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	utils.DataDir = "../data"
 	// Setup
-	utils.DataDir = "testdata"
 	err := os.MkdirAll(utils.DataDir, 0755)
 	if err != nil {
 		panic(err)
@@ -26,9 +26,7 @@ func TestMain(m *testing.M) {
 }
 
 func cleanTestFiles(id string) {
-	utils.DataDir = "testdata"
 	os.Remove(utils.DataDir + "/" + id + ".aof")
-	os.Remove(utils.DataDir + "/" + id + ".meta")
 	os.Remove(utils.DataDir + "/" + id + ".idx")
 }
 
@@ -36,18 +34,41 @@ func TestStoreDataPoints(t *testing.T) {
 	id := "TestStoreDataPoints"
 	cleanTestFiles(id)
 
-	dataPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
-		{ID: id, Timestamp: 3000, Value: 3.0},
+	// Generate 16000 test data points
+	dataPoints := make([]models.DataPoint, 16000)
+	for i := 0; i < 16000; i++ {
+		dataPoints[i] = models.DataPoint{
+			ID:        id,
+			Timestamp: int64(i * 1000), // Timestamps at 1-second intervals
+			Value:     float64(i),
+		}
 	}
 
 	storeDataPoints(id, dataPoints)
 
 	// Verify stored data
-	readPoints := readFiledDataPoints(id, 0, 4000)
-	if len(readPoints) != 3 {
-		t.Errorf("Expected 3 points, got %d", len(readPoints))
+	readPoints := readFiledDataPoints(id, 0, 16000000)
+	if len(readPoints) != 16000 {
+		t.Errorf("Expected 16000 points, got %d", len(readPoints))
+	}
+
+	// Verify some random points
+	checkPoints := []struct {
+		index int
+		ts    int64
+		value float64
+	}{
+		{0, 0, 0},
+		{1000, 1000000, 1000},
+		{15999, 15999000, 15999},
+	}
+
+	for _, cp := range checkPoints {
+		point := readPoints[cp.index]
+		if point.Timestamp != cp.ts || point.Value != cp.value {
+			t.Errorf("Point at index %d: got {ts: %d, val: %f}, want {ts: %d, val: %f}",
+				cp.index, point.Timestamp, point.Value, cp.ts, cp.value)
+		}
 	}
 
 	cleanTestFiles(id)
@@ -57,12 +78,14 @@ func TestReadFiledDataPoints(t *testing.T) {
 	id := "TestReadFiledDataPoints"
 	cleanTestFiles(id)
 
-	// Store test data
-	dataPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
-		{ID: id, Timestamp: 3000, Value: 3.0},
-		{ID: id, Timestamp: 4000, Value: 4.0},
+	// Generate 16000 test data points
+	dataPoints := make([]models.DataPoint, 16000)
+	for i := 0; i < 16000; i++ {
+		dataPoints[i] = models.DataPoint{
+			ID:        id,
+			Timestamp: int64(i * 1000), // Timestamps at 1-second intervals
+			Value:     float64(i),
+		}
 	}
 	storeDataPoints(id, dataPoints)
 
@@ -72,9 +95,11 @@ func TestReadFiledDataPoints(t *testing.T) {
 		endTime   int64
 		want      int
 	}{
-		{"full range", 0, 5000, 4},
-		{"partial range", 2000, 3000, 2},
-		{"no data range", 5000, 6000, 0},
+		{"full range", 0, 16000000, 16000},
+		{"partial range", 5000000, 6000000, 1001}, // Should include points from 5000 to 6000
+		{"no data range", 17000000, 18000000, 0},  // Outside range
+		{"early range", 0, 1000000, 1001},         // First 1001 points
+		{"middle range", 8000000, 8100000, 101},   // 101 points in the middle
 	}
 
 	for _, tt := range tests {
@@ -92,7 +117,6 @@ func TestReadFiledDataPoints(t *testing.T) {
 func TestReadLastFiledDataPoints(t *testing.T) {
 	id := "TestReadLastFiledDataPoints"
 	cleanTestFiles(id)
-	utils.DataDir = "testdata"
 
 	// Store test data
 	dataPoints := []models.DataPoint{
