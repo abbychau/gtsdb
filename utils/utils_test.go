@@ -71,6 +71,39 @@ func TestLoggingFunctions(t *testing.T) {
 	}
 }
 
+func TestPanic(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// Defer cleanup
+	defer func() {
+		w.Close()
+		os.Stdout = old
+	}()
+
+	// Test that Panic actually panics
+	expectedMsg := "test panic message"
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("The code did not panic")
+		} else if r != expectedMsg {
+			t.Errorf("Expected panic message %v, got %v", expectedMsg, r)
+		}
+
+		// Read captured output
+		w.Close()
+		os.Stdout = old
+		out, _ := io.ReadAll(r)
+		if !strings.Contains(string(out), "🚨🐹🚨") {
+			t.Errorf("Expected output containing panic emoji, got %s", string(out))
+		}
+	}()
+
+	Panic(expectedMsg)
+}
+
 func TestSetupTestFiles(t *testing.T) {
 	tmpDir, cleanup := SetupTestFiles()
 	defer cleanup()

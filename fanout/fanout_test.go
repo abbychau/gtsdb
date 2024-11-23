@@ -9,7 +9,6 @@ import (
 
 func TestBasicFanout(t *testing.T) {
 	fanout := NewFanout()
-	fanout.Start()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -45,7 +44,6 @@ func TestBasicFanout(t *testing.T) {
 
 func TestConsumerRemoval(t *testing.T) {
 	fanout := NewFanout()
-	fanout.Start()
 
 	var callCount int
 	var mu sync.Mutex
@@ -73,7 +71,6 @@ func TestConsumerRemoval(t *testing.T) {
 
 func TestConcurrentPublish(t *testing.T) {
 	fanout := NewFanout()
-	fanout.Start()
 
 	messageCount := 100
 	consumerCount := 3

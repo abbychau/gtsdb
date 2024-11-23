@@ -6,7 +6,11 @@ import (
 	"time"
 )
 
-var DataDir = "data"
+var (
+	TcpListenAddr  = ":5555"
+	HttpListenAddr = ":5556"
+	DataDir        = "data"
+)
 
 func dateString() string {
 	return time.Now().Format("2006-01-02 15:04:05")
@@ -52,6 +56,11 @@ func Warningln(messages ...interface{}) {
 
 func Debugln(messages ...interface{}) {
 	fmt.Printf("[%s] 🔍🐹 %s\n", dateString(), fmt.Sprint(messages...))
+}
+
+func Panic(v any) {
+	fmt.Printf("[%s] 🚨🐹🚨 \n", dateString()) //我被警車包圍了!
+	panic(v)
 }
 
 func SetupTestFiles() (string, func()) {

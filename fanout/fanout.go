@@ -18,14 +18,12 @@ type Fanout struct {
 }
 
 func NewFanout() *Fanout {
-	return &Fanout{
+	fanoutManager := &Fanout{
 		consumers: make([]*Consumer, 0),
 		messageCh: make(chan models.DataPoint),
 	}
-}
-
-func (f *Fanout) Start() {
-	go f.producer()
+	go fanoutManager.producer()
+	return fanoutManager
 }
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) {
