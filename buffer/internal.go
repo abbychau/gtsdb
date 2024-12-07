@@ -3,13 +3,14 @@ package buffer
 import (
 	"bufio"
 	"fmt"
-	"gtsdb/concurrent"
 	"gtsdb/models"
+	"gtsdb/synchronous"
 	"gtsdb/utils"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -17,55 +18,48 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
-
 		line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
 		dataFile.WriteString(line)
-		count, _ := idToCountMap.Get(dataPointId)
+
+		countValue, _ := idToCountMap.Load(dataPointId)
+		count := countValue.(*atomic.Int64)
 		count.Add(1)
 
 		if count.Load()%indexInterval == 0 {
-
 			//end position of this file
 			offset, _ := dataFile.Seek(0, io.SeekEnd)
 			offset -= int64(len(line))
 			updateIndexFile(indexFile, dataPoint.Timestamp, offset)
 		}
 	}
-
 }
 
-func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File {
-
-	file, ok := handleArray.Get(fileName)
+func prepareFileHandles(fileName string, handleMap *sync.Map) *os.File {
+	fileInterface, ok := handleMap.Load(fileName)
 	if !ok {
 		var err error
-		file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-
+		file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			utils.Panic(err)
 		}
-		handleArray.Set(fileName, file)
+		handleMap.Store(fileName, file)
 
-		// if filename is ending with .aof
 		if strings.HasSuffix(fileName, ".aof") {
-			// check idToCountMap if the id is already present
-			_, ok := idToCountMap.Get(fileName[:len(fileName)-4])
+			_, ok := idToCountMap.Load(fileName[:len(fileName)-4])
 			if !ok {
-				// file length
 				fileInfo, err := file.Stat()
 				if err != nil {
 					utils.Panic(err)
 				}
-				// set count to the length of the file / 26
 				fileLength := fileInfo.Size()
-				count := atomic.Int64{}
+				count := &atomic.Int64{}
 				count.Store(fileLength / 26)
-				idToCountMap.Set(fileName[:len(fileName)-4], &count)
-
+				idToCountMap.Store(fileName[:len(fileName)-4], count)
 			}
 		}
+		return file
 	}
-	return file
+	return fileInterface.(*os.File)
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
@@ -120,8 +114,9 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	reader := bufio.NewReader(file)
 
 	indexFilename := id + ".idx"
-	indexFile, ok := indexFileHandles.Get(indexFilename)
+	indexFileInterface, ok := indexFileHandles.Load(indexFilename)
 	if ok {
+		indexFile := indexFileInterface.(*os.File)
 		indexReader := bufio.NewReader(indexFile)
 		offset := int64(0)
 
@@ -199,11 +194,12 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 		return []models.DataPoint{}
 	}
 
-	rb, ok := idToRingBufferMap.Get(id)
+	rbInterface, ok := idToRingBufferMap.Load(id)
 	if !ok {
 		return []models.DataPoint{}
 	}
 
+	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 	var result []models.DataPoint
 	for i := 0; i < rb.Size(); i++ {
 		dataPoint := rb.Get(i)
@@ -215,10 +211,11 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 }
 
 func checkIfBufferHasEnoughDataPoints(id string, count int) bool {
-	rb, ok := idToRingBufferMap.Get(id)
+	rbInterface, ok := idToRingBufferMap.Load(id)
 	if !ok {
 		return false
 	}
+	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 	return rb.Size() >= count
 }
 
@@ -227,10 +224,11 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
 	}
 
-	rb, ok := idToRingBufferMap.Get(id)
+	rbInterface, ok := idToRingBufferMap.Load(id)
 	if !ok {
 		return []models.DataPoint{}
 	}
+	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 
 	if count > rb.Size() {
 		count = rb.Size()

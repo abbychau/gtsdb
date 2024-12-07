@@ -55,23 +55,21 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (87.2%)</option>
+				<option value="file0">gtsdb/buffer/external.go (88.4%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (85.0%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (85.5%)</option>
 				
-				<option value="file2">gtsdb/concurrent/hashmap.go (96.9%)</option>
+				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
 				
-				<option value="file3">gtsdb/concurrent/lru.go (100.0%)</option>
+				<option value="file3">gtsdb/concurrent/set.go (91.3%)</option>
 				
-				<option value="file4">gtsdb/concurrent/set.go (91.3%)</option>
+				<option value="file4">gtsdb/fanout/fanout.go (84.0%)</option>
 				
-				<option value="file5">gtsdb/fanout/fanout.go (84.0%)</option>
+				<option value="file5">gtsdb/main.go (66.7%)</option>
 				
-				<option value="file6">gtsdb/main.go (66.7%)</option>
+				<option value="file6">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
 				
-				<option value="file7">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
-				
-				<option value="file8">gtsdb/utils/utils.go (82.6%)</option>
+				<option value="file7">gtsdb/utils/utils.go (82.6%)</option>
 				
 				</select>
 			</div>
@@ -93,6 +91,7 @@ import (
         "gtsdb/models"
         "gtsdb/synchronous"
         "gtsdb/utils"
+        "os"
 )
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
@@ -101,16 +100,32 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="
                 return
         }</span>
 
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(dataPoint.ID)
+        <span class="cov8" title="1">rbInterface, ok := idToRingBufferMap.Load(dataPoint.ID)
         if !ok </span><span class="cov8" title="1">{
-                rb = synchronous.NewRingBuffer[models.DataPoint](cacheSize)
-                idToRingBufferMap.Set(dataPoint.ID, rb)
+                rb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+                idToRingBufferMap.Store(dataPoint.ID, rb)
+                rbInterface = rb
         }</span>
-        <span class="cov8" title="1">rb.Push(dataPoint)
+        <span class="cov8" title="1">rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
+        rb.Push(dataPoint)
 
         storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
         lastValue[dataPoint.ID] = dataPoint.Value
         lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
+}
+
+func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
+
+        dataPoints := readBufferedDataPoints(id, startTime, endTime)
+        if len(dataPoints) == 0 </span><span class="cov0" title="0">{
+                dataPoints = readFiledDataPoints(id, startTime, endTime)
+        }</span>
+
+        <span class="cov8" title="1">if downsample &gt; 1 </span><span class="cov8" title="1">{
+                dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
+        }</span>
+
+        <span class="cov8" title="1">return dataPoints</span>
 }
 
 func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
@@ -131,12 +146,14 @@ func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="co
 func FlushRemainingDataPoints() <span class="cov8" title="1">{
 
         //fsync all file handles
-        for _, file := range dataFileHandles.Values() </span><span class="cov8" title="1">{
-                file.Sync()
-        }</span>
-        <span class="cov8" title="1">for _, file := range indexFileHandles.Values() </span><span class="cov8" title="1">{
-                file.Sync()
-        }</span>
+        dataFileHandles.Range(func(key, value interface{}) bool </span><span class="cov8" title="1">{
+                value.(*os.File).Sync()
+                return true
+        }</span>)
+        <span class="cov8" title="1">indexFileHandles.Range(func(key, value interface{}) bool </span><span class="cov8" title="1">{
+                value.(*os.File).Sync()
+                return true
+        }</span>)
 }
 
 func FormatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" title="1">{
@@ -162,20 +179,6 @@ func JsonFormatDataPoints(dataPoints []models.DataPoint) string <span class="cov
         response = string(bytes)
         return response
 }</span>
-
-func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
-
-        dataPoints := readBufferedDataPoints(id, startTime, endTime)
-        if len(dataPoints) == 0 </span><span class="cov0" title="0">{
-                dataPoints = readFiledDataPoints(id, startTime, endTime)
-        }</span>
-
-        <span class="cov8" title="1">if downsample &gt; 1 </span><span class="cov8" title="1">{
-                dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
-        }</span>
-
-        <span class="cov8" title="1">return dataPoints</span>
-}
 </pre>
 		
 		<pre class="file" id="file1" style="display: none">package buffer
@@ -183,13 +186,14 @@ func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggrega
 import (
         "bufio"
         "fmt"
-        "gtsdb/concurrent"
         "gtsdb/models"
+        "gtsdb/synchronous"
         "gtsdb/utils"
         "io"
         "os"
         "strconv"
         "strings"
+        "sync"
         "sync/atomic"
 )
 
@@ -197,55 +201,48 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span cl
         dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
         indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
         for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
-
                 line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
                 dataFile.WriteString(line)
-                count, _ := idToCountMap.Get(dataPointId)
+
+                countValue, _ := idToCountMap.Load(dataPointId)
+                count := countValue.(*atomic.Int64)
                 count.Add(1)
 
                 if count.Load()%indexInterval == 0 </span><span class="cov8" title="1">{
-
                         //end position of this file
                         offset, _ := dataFile.Seek(0, io.SeekEnd)
                         offset -= int64(len(line))
                         updateIndexFile(indexFile, dataPoint.Timestamp, offset)
                 }</span>
         }
-
 }
 
-func prepareFileHandles(fileName string, handleArray *concurrent.HashMap[string, *os.File]) *os.File <span class="cov8" title="1">{
-
-        file, ok := handleArray.Get(fileName)
+func prepareFileHandles(fileName string, handleMap *sync.Map) *os.File <span class="cov8" title="1">{
+        fileInterface, ok := handleMap.Load(fileName)
         if !ok </span><span class="cov8" title="1">{
                 var err error
-                file, err = os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-
+                file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
                 if err != nil </span><span class="cov0" title="0">{
                         utils.Panic(err)
                 }</span>
-                <span class="cov8" title="1">handleArray.Set(fileName, file)
+                <span class="cov8" title="1">handleMap.Store(fileName, file)
 
-                // if filename is ending with .aof
                 if strings.HasSuffix(fileName, ".aof") </span><span class="cov8" title="1">{
-                        // check idToCountMap if the id is already present
-                        _, ok := idToCountMap.Get(fileName[:len(fileName)-4])
+                        _, ok := idToCountMap.Load(fileName[:len(fileName)-4])
                         if !ok </span><span class="cov8" title="1">{
-                                // file length
                                 fileInfo, err := file.Stat()
                                 if err != nil </span><span class="cov0" title="0">{
                                         utils.Panic(err)
                                 }</span>
-                                // set count to the length of the file / 26
                                 <span class="cov8" title="1">fileLength := fileInfo.Size()
-                                count := atomic.Int64{}
+                                count := &amp;atomic.Int64{}
                                 count.Store(fileLength / 26)
-                                idToCountMap.Set(fileName[:len(fileName)-4], &amp;count)</span>
-
+                                idToCountMap.Store(fileName[:len(fileName)-4], count)</span>
                         }
                 }
+                <span class="cov8" title="1">return file</span>
         }
-        <span class="cov8" title="1">return file</span>
+        <span class="cov8" title="1">return fileInterface.(*os.File)</span>
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov8" title="1">{
@@ -300,8 +297,9 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
         reader := bufio.NewReader(file)
 
         indexFilename := id + ".idx"
-        indexFile, ok := indexFileHandles.Get(indexFilename)
+        indexFileInterface, ok := indexFileHandles.Load(indexFilename)
         if ok </span><span class="cov8" title="1">{
+                indexFile := indexFileInterface.(*os.File)
                 indexReader := bufio.NewReader(indexFile)
                 offset := int64(0)
 
@@ -379,12 +377,13 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
                 return []models.DataPoint{}
         }</span>
 
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
+        <span class="cov8" title="1">rbInterface, ok := idToRingBufferMap.Load(id)
         if !ok </span><span class="cov0" title="0">{
                 return []models.DataPoint{}
         }</span>
 
-        <span class="cov8" title="1">var result []models.DataPoint
+        <span class="cov8" title="1">rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
+        var result []models.DataPoint
         for i := 0; i &lt; rb.Size(); i++ </span><span class="cov8" title="1">{
                 dataPoint := rb.Get(i)
                 if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
@@ -395,11 +394,12 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 }
 
 func checkIfBufferHasEnoughDataPoints(id string, count int) bool <span class="cov8" title="1">{
-        rb, ok := idToRingBufferMap.Get(id)
+        rbInterface, ok := idToRingBufferMap.Load(id)
         if !ok </span><span class="cov0" title="0">{
                 return false
         }</span>
-        <span class="cov8" title="1">return rb.Size() &gt;= count</span>
+        <span class="cov8" title="1">rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
+        return rb.Size() &gt;= count</span>
 }
 
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
@@ -407,12 +407,13 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span c
                 return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
         }</span>
 
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Get(id)
+        <span class="cov8" title="1">rbInterface, ok := idToRingBufferMap.Load(id)
         if !ok </span><span class="cov0" title="0">{
                 return []models.DataPoint{}
         }</span>
+        <span class="cov8" title="1">rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 
-        <span class="cov8" title="1">if count &gt; rb.Size() </span><span class="cov0" title="0">{
+        if count &gt; rb.Size() </span><span class="cov0" title="0">{
                 count = rb.Size()
         }</span>
         <span class="cov8" title="1">if count == 0 </span><span class="cov0" title="0">{
@@ -519,94 +520,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 		
 		<pre class="file" id="file2" style="display: none">package concurrent
 
-//🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹🐹
-import "sync"
-
-// HashMap represents a thread-safe generic map structure
-type HashMap[K comparable, V any] struct {
-        sync.RWMutex
-        items map[K]V
-}
-
-// NewHashMap creates and initializes a new HashMap
-func NewHashMap[K comparable, V any]() *HashMap[K, V] <span class="cov8" title="1">{
-        return &amp;HashMap[K, V]{
-                items: make(map[K]V),
-        }
-}</span>
-
-// Put adds or updates an element in the map
-func (h *HashMap[K, V]) Put(key K, value V) <span class="cov8" title="1">{
-        h.Lock()
-        defer h.Unlock()
-        h.items[key] = value
-}</span>
-
-// Set (alias of Put)
-func (h *HashMap[K, V]) Set(key K, value V) <span class="cov0" title="0">{
-        h.Put(key, value)
-}</span>
-
-// Get retrieves an element from the map
-func (h *HashMap[K, V]) Get(key K) (V, bool) <span class="cov8" title="1">{
-        h.RLock()
-        defer h.RUnlock()
-        value, exists := h.items[key]
-        return value, exists
-}</span>
-
-// Delete removes an element from the map
-func (h *HashMap[K, V]) Delete(key K) <span class="cov8" title="1">{
-        h.Lock()
-        defer h.Unlock()
-        delete(h.items, key)
-}</span>
-
-// Contains checks if a key exists in the map
-func (h *HashMap[K, V]) Contains(key K) bool <span class="cov8" title="1">{
-        h.RLock()
-        defer h.RUnlock()
-        _, exists := h.items[key]
-        return exists
-}</span>
-
-// Size returns the number of elements in the map
-func (h *HashMap[K, V]) Size() int <span class="cov8" title="1">{
-        h.RLock()
-        defer h.RUnlock()
-        return len(h.items)
-}</span>
-
-// Clear removes all elements from the map
-func (h *HashMap[K, V]) Clear() <span class="cov8" title="1">{
-        h.Lock()
-        defer h.Unlock()
-        h.items = make(map[K]V)
-}</span>
-
-// ForEach executes a function for each key-value pair in the map
-func (h *HashMap[K, V]) ForEach(fn func(key K, value V)) <span class="cov8" title="1">{
-        h.RLock()
-        defer h.RUnlock()
-        for k, v := range h.items </span><span class="cov8" title="1">{
-                fn(k, v)
-        }</span>
-}
-
-// Values
-func (h *HashMap[K, V]) Values() []V <span class="cov8" title="1">{
-        h.RLock()
-        defer h.RUnlock()
-        values := make([]V, 0, len(h.items))
-        for _, v := range h.items </span><span class="cov8" title="1">{
-                values = append(values, v)
-        }</span>
-        <span class="cov8" title="1">return values</span>
-}
-</pre>
-		
-		<pre class="file" id="file3" style="display: none">package concurrent
-
 import "sync"
 
 type Node[K comparable, V any] struct {
@@ -700,7 +613,7 @@ func (l *LRU[K, V]) Len() int <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file4" style="display: none">package concurrent
+		<pre class="file" id="file3" style="display: none">package concurrent
 
 import (
         "sync"
@@ -809,7 +722,7 @@ func (s *Set[T]) Intersection(other *Set[T]) *Set[T] <span class="cov8" title="1
 }
 </pre>
 		
-		<pre class="file" id="file5" style="display: none">package fanout
+		<pre class="file" id="file4" style="display: none">package fanout
 
 import (
         models "gtsdb/models"
@@ -882,7 +795,7 @@ func (f *Fanout) producer() <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file6" style="display: none">package main
+		<pre class="file" id="file5" style="display: none">package main
 
 import (
         "gtsdb/buffer"
@@ -963,7 +876,7 @@ func gracefulShutdown() <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file7" style="display: none">package synchronous
+		<pre class="file" id="file6" style="display: none">package synchronous
 
 type RingBuffer[T any] struct {
         buffer []T
@@ -1016,7 +929,7 @@ func (rb *RingBuffer[T]) Capacity() int <span class="cov0" title="0">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file8" style="display: none">package utils
+		<pre class="file" id="file7" style="display: none">package utils
 
 import (
         "fmt"

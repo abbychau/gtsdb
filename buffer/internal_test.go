@@ -5,6 +5,7 @@ import (
 	"gtsdb/synchronous"
 	"gtsdb/utils"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -214,7 +215,7 @@ func TestBufferedDataPoints(t *testing.T) {
 	for _, dp := range dataPoints {
 		rb.Push(dp)
 	}
-	idToRingBufferMap.Set(id, rb)
+	idToRingBufferMap.Store(id, rb)
 
 	t.Run("read buffered range", func(t *testing.T) {
 		points := readBufferedDataPoints(id, now-3, now-1)
@@ -234,5 +235,5 @@ func TestBufferedDataPoints(t *testing.T) {
 	})
 
 	// Cleanup
-	idToRingBufferMap = nil
+	idToRingBufferMap = &sync.Map{}
 }

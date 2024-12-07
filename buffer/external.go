@@ -6,6 +6,7 @@ import (
 	"gtsdb/models"
 	"gtsdb/synchronous"
 	"gtsdb/utils"
+	"os"
 )
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
@@ -14,16 +15,32 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 		return
 	}
 
-	rb, ok := idToRingBufferMap.Get(dataPoint.ID)
+	rbInterface, ok := idToRingBufferMap.Load(dataPoint.ID)
 	if !ok {
-		rb = synchronous.NewRingBuffer[models.DataPoint](cacheSize)
-		idToRingBufferMap.Set(dataPoint.ID, rb)
+		rb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+		idToRingBufferMap.Store(dataPoint.ID, rb)
+		rbInterface = rb
 	}
+	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 	rb.Push(dataPoint)
 
 	storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
 	lastValue[dataPoint.ID] = dataPoint.Value
 	lastTimestamp[dataPoint.ID] = dataPoint.Timestamp
+}
+
+func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
+
+	dataPoints := readBufferedDataPoints(id, startTime, endTime)
+	if len(dataPoints) == 0 {
+		dataPoints = readFiledDataPoints(id, startTime, endTime)
+	}
+
+	if downsample > 1 {
+		dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
+	}
+
+	return dataPoints
 }
 
 func ReadLastDataPoints(id string, count int) []models.DataPoint {
@@ -44,12 +61,14 @@ func ReadLastDataPoints(id string, count int) []models.DataPoint {
 func FlushRemainingDataPoints() {
 
 	//fsync all file handles
-	for _, file := range dataFileHandles.Values() {
-		file.Sync()
-	}
-	for _, file := range indexFileHandles.Values() {
-		file.Sync()
-	}
+	dataFileHandles.Range(func(key, value interface{}) bool {
+		value.(*os.File).Sync()
+		return true
+	})
+	indexFileHandles.Range(func(key, value interface{}) bool {
+		value.(*os.File).Sync()
+		return true
+	})
 }
 
 func FormatDataPoints(dataPoints []models.DataPoint) string {
@@ -74,18 +93,4 @@ func JsonFormatDataPoints(dataPoints []models.DataPoint) string {
 	bytes, _ := json.Marshal(dataPoints)
 	response = string(bytes)
 	return response
-}
-
-func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
-
-	dataPoints := readBufferedDataPoints(id, startTime, endTime)
-	if len(dataPoints) == 0 {
-		dataPoints = readFiledDataPoints(id, startTime, endTime)
-	}
-
-	if downsample > 1 {
-		dataPoints = downsampleDataPoints(dataPoints, downsample, aggregation)
-	}
-
-	return dataPoints
 }
