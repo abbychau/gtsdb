@@ -35,7 +35,7 @@ func startTCPServer(fanoutManager *fanout.Fanout) {
 	}
 	defer listener.Close()
 
-	utils.Logln("👂 用心監聽 TCP " + utils.TcpListenAddr)
+	utils.Logln("👂 正在用心監聽 TCP " + utils.TcpListenAddr)
 
 	for {
 		conn, err := listener.Accept()
@@ -48,7 +48,7 @@ func startTCPServer(fanoutManager *fanout.Fanout) {
 }
 
 func startHTTPServer(fanoutManager *fanout.Fanout) {
-	utils.Log("👂 用心監聽 HTTP " + utils.HttpListenAddr)
+	utils.Logln("👂 正在用心監聽 HTTP " + utils.HttpListenAddr)
 	http.ListenAndServe(utils.HttpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
 }
 
