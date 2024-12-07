@@ -1,5 +1,7 @@
 # Dead Simple Timeseries Database
 
+[![coverage](/docs/coverage.png)](./docs/coverage-full.png)
+
 ## Run / Compile
 
 ```bash
