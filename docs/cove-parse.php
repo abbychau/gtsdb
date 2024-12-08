@@ -57,7 +57,13 @@ class CoverageAnalyzer {
             $barWidth = ($percent / 100) * $maxBarWidth;
             
             // Draw file name
-            imagestring($img, 3, 10, $y, basename($file), $black);
+            $txt="";
+            // last 2 parts of the file name
+            $parts = explode("/", $file);
+            $txt = $parts[count($parts)-2] . "/" . $parts[count($parts)-1];
+            
+
+            imagestring($img, 3, 10, $y, $txt, $black);
             
             //make them int
             $barWidth = (int) $barWidth;
@@ -77,7 +83,7 @@ class CoverageAnalyzer {
         imagedestroy($img);
     }
 
-    public function generateImageOnlyTotalCoverage($width = 170, $height=35){
+    public function generateImageOnlyTotalCoverage($width = 165, $height=35){
         $img = imagecreatetruecolor($width, $height);
         $background = imagecolorallocate($img, 10,10,10);
         $foreground = imagecolorallocate($img, 255,255,255);
@@ -86,7 +92,7 @@ class CoverageAnalyzer {
         
         // Draw title
         $coverage = round(($this->coveredStmts / $this->totalStmts) * 100, 2);
-        imagestring($img, 5, 10, 10, "Coverage:", $foreground);
+        imagestring($img, 2, 25, 10, "Coverage:", $foreground);
 
         $textColor = imagecolorallocate($img, 0, 255, 0);
         if ($coverage < 50) {
@@ -95,8 +101,8 @@ class CoverageAnalyzer {
             $textColor = imagecolorallocate($img, 255, 255, 0);
         }
 
-        imagestring($img, 5, 100, 10, "{$coverage}%", $textColor);
-                
+        imagestring($img, 2, 100, 10, "{$coverage}%", $textColor);
+
         imagepng($img, 'docs/coverage.png');
         imagedestroy($img);
 
@@ -124,3 +130,4 @@ $analyzer->analyze('docs/coverage');
 // Generate image (uncomment to output PNG instead of text)
 $analyzer->generateImage();
 $analyzer->generateImageOnlyTotalCoverage();
+
