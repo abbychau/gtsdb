@@ -5,7 +5,6 @@ import (
 	"gtsdb/synchronous"
 	"gtsdb/utils"
 	"os"
-	"sync"
 	"testing"
 	"time"
 )
@@ -235,5 +234,5 @@ func TestBufferedDataPoints(t *testing.T) {
 	})
 
 	// Cleanup
-	idToRingBufferMap = &sync.Map{}
+	idToRingBufferMap.Clear()
 }

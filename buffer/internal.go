@@ -3,14 +3,13 @@ package buffer
 import (
 	"bufio"
 	"fmt"
+	"gtsdb/concurrent"
 	"gtsdb/models"
-	"gtsdb/synchronous"
 	"gtsdb/utils"
 	"io"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 )
 
@@ -22,7 +21,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 		dataFile.WriteString(line)
 
 		countValue, _ := idToCountMap.Load(dataPointId)
-		count := countValue.(*atomic.Int64)
+		count := countValue
 		count.Add(1)
 
 		if count.Load()%indexInterval == 0 {
@@ -34,7 +33,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	}
 }
 
-func prepareFileHandles(fileName string, handleMap *sync.Map) *os.File {
+func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.File]) *os.File {
 	fileInterface, ok := handleMap.Load(fileName)
 	if !ok {
 		var err error
@@ -59,7 +58,7 @@ func prepareFileHandles(fileName string, handleMap *sync.Map) *os.File {
 		}
 		return file
 	}
-	return fileInterface.(*os.File)
+	return fileInterface
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
@@ -116,7 +115,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	indexFilename := id + ".idx"
 	indexFileInterface, ok := indexFileHandles.Load(indexFilename)
 	if ok {
-		indexFile := indexFileInterface.(*os.File)
+		indexFile := indexFileInterface
 		indexReader := bufio.NewReader(indexFile)
 		offset := int64(0)
 
@@ -194,12 +193,11 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 		return []models.DataPoint{}
 	}
 
-	rbInterface, ok := idToRingBufferMap.Load(id)
+	rb, ok := idToRingBufferMap.Load(id)
 	if !ok {
 		return []models.DataPoint{}
 	}
 
-	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 	var result []models.DataPoint
 	for i := 0; i < rb.Size(); i++ {
 		dataPoint := rb.Get(i)
@@ -211,11 +209,10 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 }
 
 func checkIfBufferHasEnoughDataPoints(id string, count int) bool {
-	rbInterface, ok := idToRingBufferMap.Load(id)
+	rb, ok := idToRingBufferMap.Load(id)
 	if !ok {
 		return false
 	}
-	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 	return rb.Size() >= count
 }
 
@@ -224,11 +221,10 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
 	}
 
-	rbInterface, ok := idToRingBufferMap.Load(id)
+	rb, ok := idToRingBufferMap.Load(id)
 	if !ok {
 		return []models.DataPoint{}
 	}
-	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 
 	if count > rb.Size() {
 		count = rb.Size()

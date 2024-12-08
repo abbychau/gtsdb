@@ -15,16 +15,16 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 		return
 	}
 
-	rbInterface, ok := idToRingBufferMap.Load(dataPoint.ID)
+	rb, ok := idToRingBufferMap.Load(dataPoint.ID)
 	if !ok {
-		rb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
-		idToRingBufferMap.Store(dataPoint.ID, rb)
-		rbInterface = rb
+		newRb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+		idToRingBufferMap.Store(dataPoint.ID, newRb)
+		rb = newRb
 	}
-	rb := rbInterface.(*synchronous.RingBuffer[models.DataPoint])
 	rb.Push(dataPoint)
 
 	storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+
 	lastValue[dataPoint.ID] = dataPoint.Value
 	lastTimestamp[dataPoint.ID] = dataPoint.Timestamp
 }
@@ -61,12 +61,12 @@ func ReadLastDataPoints(id string, count int) []models.DataPoint {
 func FlushRemainingDataPoints() {
 
 	//fsync all file handles
-	dataFileHandles.Range(func(key, value interface{}) bool {
-		value.(*os.File).Sync()
+	dataFileHandles.Range(func(key string, value *os.File) bool {
+		value.Sync()
 		return true
 	})
-	indexFileHandles.Range(func(key, value interface{}) bool {
-		value.(*os.File).Sync()
+	indexFileHandles.Range(func(key string, value *os.File) bool {
+		value.Sync()
 		return true
 	})
 }

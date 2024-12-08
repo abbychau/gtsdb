@@ -71,35 +71,38 @@ goos: windows
 goarch: amd64
 pkg: gtsdb
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24         1218360             19854 ns/op            4245 B/op          5 allocs/op
+BenchmarkMain-24          311648             19172 ns/op            4245 B/op            5 allocs/op
+PASS
+ok      gtsdb   6.439s
 ```
 
 
 Explanation:
 - This benchmark does 50% read and 50% write operations to 100 different keys(devices).
-- It performs 249386 operations in 22.267 seconds. The operations include read and write operations.
+- It performs 249386 operations in 6 seconds. The operations include read and write operations.
 
 
 ### Concurrent Internals Performance
 
-- Run: `go test -benchmem -run=^$ -bench ^Bench gtsdb/concurrent -benchtime=5s`
+- Run: `make benchmark`
 
 ```
 goos: windows
 goarch: amd64
 pkg: gtsdb/concurrent
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkHashMap/Put-24                 183965112               30.11 ns/op            4 B/op          1 allocs/op
-BenchmarkHashMap/Get-24                 325839816               17.06 ns/op            0 B/op          0 allocs/op
-BenchmarkHashMap/ConcurrentPut-24               76154018               101.0 ns/op             4 B/op          0 allocs/op
-BenchmarkHashMap/ConcurrentGet-24               179002152               33.92 ns/op            0 B/op          0 allocs/op
-BenchmarkHashMap/MixedReadWrite-24              100000000               56.78 ns/op            1 B/op          0 allocs/op
-BenchmarkSet_Add-24                             83288680               135.5 ns/op            38 B/op          0 allocs/op
-BenchmarkSet_Contains-24                        481914471               12.54 ns/op            0 B/op          0 allocs/op
-BenchmarkSet_ConcurrentAdd-24                   43283078               163.3 ns/op            37 B/op          0 allocs/op
+BenchmarkMap/Sequential_Store-24        12363549               477.2 ns/o     154 B/op           6 allocs/op
+BenchmarkMap/Sequential_Load-24         44461207               209.5 ns/o       7 B/op           0 allocs/op
+BenchmarkMap/Concurrent_Store-24        36248278               256.2 ns/o      56 B/op           4 allocs/op
+BenchmarkMap/Concurrent_Load-24         63952998               216.3 ns/o       7 B/op           0 allocs/op
+BenchmarkMap/Concurrent_Mixed-24        18266863               427.2 ns/o      94 B/op           3 allocs/op
+BenchmarkSet_Add-24                     60995383               208.0 ns/o      52 B/op           0 allocs/op
+BenchmarkSet_Contains-24                484518542               12.36 ns/op              0 B/op          0 allocs/op
+BenchmarkSet_ConcurrentAdd-24           43510735               213.0 ns/o      37 B/op           0 allocs/op
 PASS
-ok      gtsdb/concurrent        62.763s
+ok      gtsdb/concurrent        147.859s
 ```
+
 
 
 
