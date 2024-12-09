@@ -9,7 +9,7 @@ import (
 )
 
 func cleanup() {
-	utils.DataDir = "../data"
+	utils.DataDir = "../testdata"
 	files, _ := os.ReadDir(utils.DataDir)
 	for _, file := range files {
 		os.Remove(utils.DataDir + "/" + file.Name())
@@ -153,5 +153,65 @@ func TestReadLastDataPoints(t *testing.T) {
 		if !valueMap[float64(i)] {
 			t.Errorf("Missing value %d in result set", i)
 		}
+	}
+}
+
+func TestInitIDSet(t *testing.T) {
+	cleanup()
+	defer cleanup()
+	// Create some test files
+	testFiles := []string{"test1.aof", "test2.aof", "test3.aof"}
+	for _, fname := range testFiles {
+		f, _ := os.Create(utils.DataDir + "/" + fname)
+		f.Close()
+	}
+
+	// Initialize ID set
+	InitIDSet()
+
+	// Get all IDs
+	ids := GetAllIds()
+
+	// Verify all test IDs are present
+	expectedIds := []string{"test1", "test2", "test3"}
+
+	// Check if each expected ID exists
+	for _, expectedId := range expectedIds {
+		found := false
+		for _, id := range ids {
+			if id == expectedId {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected ID %s not found in result", expectedId)
+		}
+	}
+}
+
+func TestReadDataPointsEmptyResult(t *testing.T) {
+	cleanup()
+	defer cleanup()
+	utils.DataDir = "../testdata"
+	InitIDSet()
+
+	// Test reading non-existent ID
+	result := ReadDataPoints("nonexistent", 0, 1000, 1, "avg")
+	if len(result) != 0 {
+		t.Errorf("Expected empty result for non-existent ID, got %d points", len(result))
+	}
+
+	// Test reading with invalid time range
+	dataPoint := models.DataPoint{
+		ID:        "test_empty",
+		Timestamp: 1000,
+		Value:     42.5,
+	}
+	StoreDataPointBuffer(dataPoint)
+
+	result = ReadDataPoints("test_empty", 2000, 3000, 1, "avg")
+	if len(result) != 0 {
+		t.Errorf("Expected empty result for invalid time range, got %d points", len(result))
 	}
 }

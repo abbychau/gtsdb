@@ -107,6 +107,41 @@ func TestConcurrentPublish(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestGetConsumers(t *testing.T) {
+	fanout := NewFanout()
+
+	// Add three consumers
+	consumers := []int{1, 2, 3}
+	for _, id := range consumers {
+		fanout.AddConsumer(id, func(dp models.DataPoint) {})
+	}
+
+	// Get consumers and verify
+	actualConsumers := fanout.GetConsumers()
+	if len(actualConsumers) != len(consumers) {
+		t.Errorf("Expected %d consumers, got %d", len(consumers), len(actualConsumers))
+	}
+
+	// Verify consumer IDs
+	consumerMap := make(map[int]bool)
+	for _, c := range actualConsumers {
+		consumerMap[c.ID] = true
+	}
+
+	for _, id := range consumers {
+		if !consumerMap[id] {
+			t.Errorf("Consumer with ID %d not found", id)
+		}
+	}
+
+	// Remove a consumer and verify again
+	fanout.RemoveConsumer(2)
+	actualConsumers = fanout.GetConsumers()
+	if len(actualConsumers) != len(consumers)-1 {
+		t.Errorf("Expected %d consumers after removal, got %d", len(consumers)-1, len(actualConsumers))
+	}
+}
+
 func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	c := make(chan struct{})
 	go func() {

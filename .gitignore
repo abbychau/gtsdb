@@ -2,3 +2,4 @@ data/*.aof
 data/*.idx
 gtsdb
 buffer/testdata/*
+testdata/*

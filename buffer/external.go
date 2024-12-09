@@ -14,9 +14,9 @@ func InitIDSet() {
 	// Read all the files in the data directory
 	files, err := os.ReadDir(utils.DataDir)
 	if err != nil {
-		utils.Panic(err)
+		utils.InitDataDirectory()
+		return
 	}
-
 	for _, file := range files {
 		if strings.HasSuffix(file.Name(), ".aof") {
 			id := file.Name()[:len(file.Name())-4]

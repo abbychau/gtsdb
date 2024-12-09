@@ -56,10 +56,6 @@ func (f *Fanout) Publish(msg models.DataPoint) {
 	f.messageCh <- msg
 }
 
-func (f *Fanout) Wait() {
-	f.wg.Wait()
-}
-
 func (f *Fanout) producer() {
 	for msg := range f.messageCh {
 		f.mu.RLock()

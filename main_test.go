@@ -89,8 +89,10 @@ func TestGracefulShutdown(t *testing.T) {
 func TestTCPServerInitialization(t *testing.T) {
 	utils.TcpListenAddr = "localhost:5555"
 	fanoutManager := fanout.NewFanout()
+	stop := make(chan struct{})
+
 	// Start TCP server in goroutine
-	go startTCPServer(fanoutManager)
+	go startTCPServerWithStop(fanoutManager, stop)
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -103,13 +105,25 @@ func TestTCPServerInitialization(t *testing.T) {
 	if conn != nil {
 		conn.Close()
 	}
+
+	// Test graceful shutdown
+	close(stop)
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify server stopped
+	_, err = net.Dial("tcp", utils.TcpListenAddr)
+	if err == nil {
+		t.Error("Server should have stopped")
+	}
 }
 
 func TestHTTPServerInitialization(t *testing.T) {
 	utils.HttpListenAddr = "localhost:5556"
 	fanoutManager := fanout.NewFanout()
+	stop := make(chan struct{})
+
 	// Start HTTP server in goroutine
-	go startHTTPServer(fanoutManager)
+	go startHTTPServerWithStop(fanoutManager, stop)
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -121,6 +135,16 @@ func TestHTTPServerInitialization(t *testing.T) {
 	}
 	if resp != nil {
 		resp.Body.Close()
+	}
+
+	// Test graceful shutdown
+	close(stop)
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify server stopped
+	_, err = http.Get(fmt.Sprintf("http://%s/health", utils.HttpListenAddr))
+	if err == nil {
+		t.Error("Server should have stopped")
 	}
 }
 
@@ -161,6 +185,50 @@ func TestMainIntegration(t *testing.T) {
 	case <-done:
 		// Test completed successfully
 	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out")
+	}
+}
+
+func TestRun(t *testing.T) {
+	// Create temporary directory for test
+	tmpDir := t.TempDir()
+
+	// Create test config file
+	configContent := `[listens]
+tcp = "localhost:0"
+http = "localhost:0"
+[paths]
+data = "` + tmpDir + `"`
+
+	configFile := filepath.Join(tmpDir, "test.ini")
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start the application in a goroutine
+	done := make(chan bool)
+	go func() {
+		go run(configFile)
+		time.Sleep(100 * time.Millisecond) // Give time for servers to start
+
+		// Send interrupt signal to trigger shutdown
+		p, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		p.Signal(os.Interrupt)
+		done <- true
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case <-done:
+		// Verify data directory was created
+		if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
+			t.Error("Data directory was not created")
+		}
+	case <-time.After(2 * time.Second):
 		t.Fatal("Test timed out")
 	}
 }

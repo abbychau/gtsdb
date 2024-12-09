@@ -15,38 +15,71 @@ import (
 )
 
 func main() {
-	loadConfig("gtsdb.ini")
+	run("gtsdb.ini")
+}
+
+func run(configFile string) {
+	loadConfig(configFile)
 	utils.InitDataDirectory()
 	fanoutManager := fanout.NewFanout()
-	go startTCPServer(fanoutManager)
-	go startHTTPServer(fanoutManager)
+
+	// Create stop channels
+	tcpStop := make(chan struct{})
+	httpStop := make(chan struct{})
+
+	go startTCPServerWithStop(fanoutManager, tcpStop)
+	go startHTTPServerWithStop(fanoutManager, httpStop)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
+
+	// Stop servers
+	close(tcpStop)
+	close(httpStop)
 	gracefulShutdown()
 }
 
-func startTCPServer(fanoutManager *fanout.Fanout) {
+func startTCPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 	listener, err := net.Listen("tcp", utils.TcpListenAddr)
 	if err != nil {
 		utils.Errorln("Error listening:", err)
-		os.Exit(1)
+		return
 	}
 	defer listener.Close()
+
+	go func() {
+		<-stop
+		listener.Close()
+	}()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			utils.Errorln("Error accepting connection:", err)
-			continue
+			select {
+			case <-stop:
+				return
+			default:
+				utils.Errorln("Error accepting connection:", err)
+				continue
+			}
 		}
 		go handlers.HandleTcpConnection(conn, fanoutManager)
 	}
 }
 
-func startHTTPServer(fanoutManager *fanout.Fanout) {
-	http.ListenAndServe(utils.HttpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
+func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
+	srv := &http.Server{
+		Addr:    utils.HttpListenAddr,
+		Handler: handlers.SetupHTTPRoutes(fanoutManager),
+	}
+
+	go func() {
+		<-stop
+		srv.Close()
+	}()
+
+	srv.ListenAndServe()
 }
 
 func loadConfig(iniFile string) {
@@ -66,7 +99,7 @@ func loadConfig(iniFile string) {
 
 	utils.Logln(" TCP 監聽地址： ", utils.TcpListenAddr)
 	utils.Logln("HTTP 監聽地址： ", utils.HttpListenAddr)
-	utils.Logln("數據存儲目錄： ", utils.DataDir)
+	utils.Logln(" 數據存儲目錄： ", utils.DataDir)
 
 	buffer.InitIDSet()
 
