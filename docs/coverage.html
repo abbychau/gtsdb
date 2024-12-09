@@ -57,7 +57,7 @@
 				
 				<option value="file0">gtsdb/buffer/external.go (88.5%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (87.0%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (92.2%)</option>
 				
 				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
 				
@@ -244,7 +244,7 @@ func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.F
         if !ok </span><span class="cov8" title="1">{
                 var err error
                 file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-                if err != nil </span><span class="cov0" title="0">{
+                if err != nil </span><span class="cov8" title="1">{
                         utils.Panic(err)
                 }</span>
                 <span class="cov8" title="1">handleMap.Store(fileName, file)
@@ -395,7 +395,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 }
 
 func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
-        if cacheSize == 0 </span><span class="cov0" title="0">{
+        if cacheSize == 0 </span><span class="cov8" title="1">{
                 return []models.DataPoint{}
         }</span>
 
@@ -429,14 +429,14 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span c
         }</span>
 
         <span class="cov8" title="1">rb, ok := idToRingBufferMap.Load(id)
-        if !ok </span><span class="cov0" title="0">{
+        if !ok </span><span class="cov8" title="1">{
                 return []models.DataPoint{}
         }</span>
 
-        <span class="cov8" title="1">if count &gt; rb.Size() </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if count &gt; rb.Size() </span><span class="cov8" title="1">{
                 count = rb.Size()
         }</span>
-        <span class="cov8" title="1">if count == 0 </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if count == 0 </span><span class="cov8" title="1">{
                 return []models.DataPoint{}
         }</span>
 
@@ -448,7 +448,7 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span c
 }
 
 func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
-        if len(dataPoints) == 0 </span><span class="cov0" title="0">{
+        if len(dataPoints) == 0 </span><span class="cov8" title="1">{
                 return dataPoints
         }</span>
 
@@ -456,8 +456,10 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
         intervalStart := dataPoints[0].Timestamp
         intervalSum := 0.0
         intervalCount := 0
-        var intervalMin, intervalMax, intervalFirst, intervalLast float64
-        intervalFirst = dataPoints[0].Value
+        intervalMin := dataPoints[0].Value
+        intervalMax := dataPoints[0].Value
+        intervalFirst := dataPoints[0].Value
+        intervalLast := dataPoints[0].Value
 
         for _, dp := range dataPoints </span><span class="cov8" title="1">{
                 if dp.Timestamp-intervalStart &gt;= int64(downsample) </span><span class="cov8" title="1">{
@@ -477,7 +479,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                                         value = intervalFirst</span>
                                 case "last":<span class="cov8" title="1">
                                         value = intervalLast</span>
-                                default:<span class="cov0" title="0">
+                                default:<span class="cov8" title="1">
                                         value = intervalSum / float64(intervalCount)</span>
                                 }
                                 <span class="cov8" title="1">downsampled = append(downsampled, models.DataPoint{
@@ -498,7 +500,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                         // Accumulate values within the current interval
                         intervalSum += dp.Value
                         intervalCount++
-                        if dp.Value &lt; intervalMin </span><span class="cov0" title="0">{
+                        if dp.Value &lt; intervalMin </span><span class="cov8" title="1">{
                                 intervalMin = dp.Value
                         }</span>
                         <span class="cov8" title="1">if dp.Value &gt; intervalMax </span><span class="cov8" title="1">{
@@ -524,7 +526,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                         value = intervalFirst</span>
                 case "last":<span class="cov8" title="1">
                         value = intervalLast</span>
-                default:<span class="cov0" title="0">
+                default:<span class="cov8" title="1">
                         value = intervalSum / float64(intervalCount)</span>
                 }
                 <span class="cov8" title="1">downsampled = append(downsampled, models.DataPoint{

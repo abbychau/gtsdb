@@ -250,8 +250,10 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 	intervalStart := dataPoints[0].Timestamp
 	intervalSum := 0.0
 	intervalCount := 0
-	var intervalMin, intervalMax, intervalFirst, intervalLast float64
-	intervalFirst = dataPoints[0].Value
+	intervalMin := dataPoints[0].Value
+	intervalMax := dataPoints[0].Value
+	intervalFirst := dataPoints[0].Value
+	intervalLast := dataPoints[0].Value
 
 	for _, dp := range dataPoints {
 		if dp.Timestamp-intervalStart >= int64(downsample) {

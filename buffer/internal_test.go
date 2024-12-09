@@ -236,3 +236,106 @@ func TestBufferedDataPoints(t *testing.T) {
 	// Cleanup
 	idToRingBufferMap.Clear()
 }
+
+func TestReadLastBufferedDataPoints(t *testing.T) {
+	id := "TestReadLastBufferedDataPoints"
+
+	t.Run("map load not ok", func(t *testing.T) {
+		points := readLastBufferedDataPoints("nonexistent", 1)
+		if len(points) != 0 {
+			t.Errorf("Expected empty slice, got %d points", len(points))
+		}
+	})
+
+	// Setup test data
+	cacheSize = 5
+	rb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+	for i := 0; i < 3; i++ {
+		rb.Push(models.DataPoint{Timestamp: int64(i), Value: float64(i)})
+	}
+	idToRingBufferMap.Store(id, rb)
+
+	t.Run("count greater than size", func(t *testing.T) {
+		points := readLastBufferedDataPoints(id, 10)
+		if len(points) != 3 {
+			t.Errorf("Expected 3 points, got %d", len(points))
+		}
+	})
+
+	t.Run("count is zero", func(t *testing.T) {
+		points := readLastBufferedDataPoints(id, 0)
+		if len(points) != 0 {
+			t.Errorf("Expected 0 points, got %d", len(points))
+		}
+	})
+
+	// Cleanup
+	idToRingBufferMap.Clear()
+}
+
+func TestDownsampleDataPointsEdgeCases(t *testing.T) {
+	t.Run("empty data points", func(t *testing.T) {
+		result := downsampleDataPoints([]models.DataPoint{}, 1000, "avg")
+		if len(result) != 0 {
+			t.Errorf("Expected empty result, got %d points", len(result))
+		}
+	})
+
+	t.Run("invalid aggregation", func(t *testing.T) {
+		dataPoints := []models.DataPoint{
+			{Timestamp: 1000, Value: 1.0},
+			{Timestamp: 2000, Value: 2.0},
+		}
+		result := downsampleDataPoints(dataPoints, 1000, "invalid")
+		if len(result) == 0 {
+			t.Error("Expected non-empty result with default avg aggregation")
+		}
+	})
+
+	t.Run("min value update", func(t *testing.T) {
+		dataPoints := []models.DataPoint{
+			{Timestamp: 1000, Value: 3.0},
+			{Timestamp: 1500, Value: 1.0},
+			{Timestamp: 2000, Value: 2.0},
+		}
+		result := downsampleDataPoints(dataPoints, 2000, "min") // Use 2000 to group all points in one interval
+		if len(result) != 1 || result[0].Value != 1 {
+			t.Errorf("Expected min value 1, got %f, len: %d", result[0].Value, len(result))
+		}
+	})
+}
+
+func TestReadBufferedDataPointsEdgeCases(t *testing.T) {
+	id := "TestReadBufferedDataPointsEdgeCases"
+
+	t.Run("cache size zero", func(t *testing.T) {
+		originalSize := cacheSize
+		cacheSize = 0
+		points := readBufferedDataPoints(id, 0, 1000)
+		if len(points) != 0 {
+			t.Errorf("Expected empty result when cache size is 0")
+		}
+		cacheSize = originalSize
+	})
+
+	t.Run("map load not ok", func(t *testing.T) {
+		points := readBufferedDataPoints("nonexistent", 0, 1000)
+		if len(points) != 0 {
+			t.Errorf("Expected empty result when id doesn't exist")
+		}
+	})
+}
+
+func TestPrepareFileHandlesPanic(t *testing.T) {
+	originalDataDir := utils.DataDir
+	utils.DataDir = "/nonexistent/directory"
+
+	defer func() {
+		utils.DataDir = originalDataDir
+		if r := recover(); r == nil {
+			t.Errorf("Expected panic for invalid directory")
+		}
+	}()
+
+	prepareFileHandles("test.aof", dataFileHandles)
+}

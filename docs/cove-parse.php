@@ -34,7 +34,7 @@ class CoverageAnalyzer {
         }
     }
 
-    public function generateImage($width = 600, $height = 300) {
+    public function generateImage($width = 600, $height = 600) {
         $img = imagecreatetruecolor($width, $height);
         $white = imagecolorallocate($img, 255, 255, 255);
         $green = imagecolorallocate($img, 75, 181, 67);
