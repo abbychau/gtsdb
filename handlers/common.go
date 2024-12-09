@@ -73,7 +73,8 @@ func HandleOperation(op Operation) Response {
 			response = buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
 		}
 		return Response{Success: true, Data: response}
-
+	case "ids":
+		return Response{Success: true, Data: buffer.GetAllIds()}
 	case "flush":
 		buffer.FlushRemainingDataPoints()
 		return Response{Success: true, Message: "Data points flushed"}

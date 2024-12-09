@@ -1,6 +1,34 @@
-# Dead Simple Timeseries Database
+# Golang Dead Simple Timeseries Database
 
 [![coverage](/docs/coverage.png)](./docs/coverage-full.png)
+
+## Introduction
+
+This is a simple timeseries database written in Golang. It is designed to be simple and easy to use. It is designed to be used in IoT and other applications where you need to store timeseries data.
+
+Simple is not only in terms of usage but also in terms of a fundamentally new ways of storing data.
+
+Let's compare it with other databases, usually, a database do these things:
+1. Write data to WAL (Write Ahead Log) and the WAL cursor (maybe an offset or ID), into disk
+2. Stream IO to memory
+3. Do some internal processing like indexing and caching
+4. Write data to disk by blocks, fsync to disk for durability
+5. When disaster strikes, read data from disk and replay WAL to recover data
+6. Read data from index and file blocks
+
+I think in a different way. I think, if WAL is anyway needed for a production grade database, why not just use WAL for everything:
+1. Write data to WAL
+2. Create indexes conditionally
+3. Read data from WAL and indexes
+
+This way, we saves a lot of IO and MEMORY USAGE. That's why I call it a dead simple timeseries database. I don't scarifice durability. And reading from Index is still O(log n).
+
+I don't want to say this is perfect. So here is the tradeoff: "GTSDB needs more file handles than other databases" because it keeps WAL open for reading and writing, but I think it's worth it, especially for weak hardwares. And more importantly, we can make a LRU of file handles when it is REALLY needed.
+
+You can see the performance of this database in the performance section. (It is way better than you can expect by this design even it's just in Golang)
+
+Am I going to write it in Rust/C++/Zig? Yes. I love Rust but GTSDB is still highly experimental and I want to make it more stable before I write it in Rust. I still have a lot of ideas to implement and they sometimes contradict each other. So... I'm still in Golang. Even so, I made it in very high code coverage and with some different internal and end-to-end benchmarks. If you want to use it in production, you can use it. Just make sure to checkout a git hash that is with a green tick in the CI. 
+
 
 ## Run / Compile
 
@@ -19,7 +47,7 @@ go build .
 {
     "operation":"write",
     "Write": {
-        "ID" : "a_sensor1",
+        "id" : "a_sensor1",
         "Value": 32242424243333333333.3333
     }
 }
@@ -29,7 +57,7 @@ go build .
 {
     "operation":"read",
     "Read": {
-        "ID" : "a_sensor1",
+        "id" : "a_sensor1",
         "start_timestamp": 1717965210,
         "end_timestamp": 1717965211,
         "downsampling": 3
@@ -38,9 +66,15 @@ go build .
 {
     "operation":"read",
     "Read": {
-        "ID" : "a_sensor1",
+        "id" : "a_sensor1",
         "lastx": 1
     }
+}
+
+# Get all keys
+# POST /
+{
+    "operation":"ids"
 }
 
 # Subscribe to a key

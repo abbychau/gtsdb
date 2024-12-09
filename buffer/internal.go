@@ -201,6 +201,7 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 	var result []models.DataPoint
 	for i := 0; i < rb.Size(); i++ {
 		dataPoint := rb.Get(i)
+		dataPoint.ID = id
 		if dataPoint.Timestamp >= startTime && dataPoint.Timestamp <= endTime {
 			result = append(result, dataPoint)
 		}

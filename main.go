@@ -35,8 +35,6 @@ func startTCPServer(fanoutManager *fanout.Fanout) {
 	}
 	defer listener.Close()
 
-	utils.Logln("👂 正在用心監聽 TCP " + utils.TcpListenAddr)
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -48,7 +46,6 @@ func startTCPServer(fanoutManager *fanout.Fanout) {
 }
 
 func startHTTPServer(fanoutManager *fanout.Fanout) {
-	utils.Logln("👂 正在用心監聽 HTTP " + utils.HttpListenAddr)
 	http.ListenAndServe(utils.HttpListenAddr, handlers.SetupHTTPRoutes(fanoutManager))
 }
 
@@ -67,9 +64,13 @@ func loadConfig(iniFile string) {
 		utils.DataDir = cfg.Section("paths").Key("data").String()
 	}
 
-	utils.Logln("TCP 監聽地址：", utils.TcpListenAddr)
-	utils.Logln("HTTP 監聽地址：", utils.HttpListenAddr)
-	utils.Logln("數據存儲目錄：", utils.DataDir)
+	utils.Logln(" TCP 監聽地址： ", utils.TcpListenAddr)
+	utils.Logln("HTTP 監聽地址： ", utils.HttpListenAddr)
+	utils.Logln("數據存儲目錄： ", utils.DataDir)
+
+	buffer.InitIDSet()
+
+	utils.Log("📊 我們現在有 %d 組時序", len(buffer.GetAllIds()))
 }
 
 func gracefulShutdown() {
