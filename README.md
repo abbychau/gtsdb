@@ -9,12 +9,13 @@ This is a simple timeseries database written in Golang. It is designed to be sim
 Simple is not only in terms of usage but also in terms of a fundamentally new ways of storing data.
 
 Let's compare it with other databases, usually, a database do these things:
-1. Write data to WAL (Write Ahead Log) and the WAL cursor (maybe an offset or ID), into disk
+1. Write data to WAL (Write Ahead Log) into disk
 2. Stream IO to memory
 3. Do some internal processing like indexing and caching
 4. Write data to disk by blocks, fsync to disk for durability
-5. When disaster strikes, read data from disk and replay WAL to recover data
-6. Read data from index and file blocks
+5. Update or erase WAL cursor (maybe an offset or ID)
+6. When disaster strikes, read data from disk and replay WAL to recover data
+7. Read data from index and file blocks
 
 I think in a different way. I think, if WAL is anyway needed for a production grade database, why not just use WAL for everything:
 1. Write data to WAL
