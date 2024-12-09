@@ -55,15 +55,15 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (88.5%)</option>
+				<option value="file0">gtsdb/buffer/external.go (92.3%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (92.2%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (92.7%)</option>
 				
 				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
 				
 				<option value="file3">gtsdb/concurrent/map.go (100.0%)</option>
 				
-				<option value="file4">gtsdb/concurrent/set.go (91.3%)</option>
+				<option value="file4">gtsdb/concurrent/set.go (100.0%)</option>
 				
 				<option value="file5">gtsdb/fanout/fanout.go (100.0%)</option>
 				
@@ -71,7 +71,7 @@
 				
 				<option value="file7">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
 				
-				<option value="file8">gtsdb/utils/utils.go (82.6%)</option>
+				<option value="file8">gtsdb/utils/utils.go (87.5%)</option>
 				
 				</select>
 			</div>
@@ -114,7 +114,7 @@ func InitIDSet() <span class="cov8" title="1">{
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
         allIds.Add(dataPoint.ID)
-        if cacheSize == 0 </span><span class="cov0" title="0">{
+        if cacheSize == 0 </span><span class="cov8" title="1">{
                 storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
                 return
         }</span>
@@ -417,7 +417,7 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 
 func checkIfBufferHasEnoughDataPoints(id string, count int) bool <span class="cov8" title="1">{
         rb, ok := idToRingBufferMap.Load(id)
-        if !ok </span><span class="cov0" title="0">{
+        if !ok </span><span class="cov8" title="1">{
                 return false
         }</span>
         <span class="cov8" title="1">return rb.Size() &gt;= count</span>
@@ -767,10 +767,10 @@ func (s *Set[T]) Items() []T <span class="cov8" title="1">{
         <span class="cov8" title="1">return items</span>
 }
 
-func (s *Set[T]) ForEach(fn func(item T)) <span class="cov0" title="0">{
+func (s *Set[T]) ForEach(fn func(item T)) <span class="cov8" title="1">{
         s.RLock()
         defer s.RUnlock()
-        for item := range s.items </span><span class="cov0" title="0">{
+        for item := range s.items </span><span class="cov8" title="1">{
                 fn(item)
         }</span>
 }
@@ -1110,23 +1110,6 @@ func Debugln(messages ...interface{}) <span class="cov8" title="1">{
 func Panic(v any) <span class="cov8" title="1">{
         fmt.Printf("[%s] 🚨🐹🚨 \n", dateString()) //我被警車包圍了!
         panic(v)</span>
-}
-
-func SetupTestFiles() (string, func()) <span class="cov8" title="1">{
-        // Create temporary directory
-        tmpDir, err := os.MkdirTemp("", "gtsdb_test")
-        if err != nil </span><span class="cov0" title="0">{
-                //fatal
-                fmt.Println("Error creating temporary directory:", err)
-                os.Exit(1)
-        }</span>
-
-        // Return cleanup function
-        <span class="cov8" title="1">cleanup := func() </span><span class="cov8" title="1">{
-                os.RemoveAll(tmpDir)
-        }</span>
-
-        <span class="cov8" title="1">return tmpDir, cleanup</span>
 }
 </pre>
 		

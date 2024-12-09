@@ -220,3 +220,33 @@ func TestReadDataPointsEmptyResult(t *testing.T) {
 		t.Errorf("Expected empty result for invalid time range, got %d points", len(result))
 	}
 }
+
+func TestStoreDataPointBufferWithZeroCache(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Set cache size to 0
+	cacheSize = 0
+
+	// Test data
+	dataPoint := models.DataPoint{
+		ID:        "TestZeroCache",
+		Timestamp: time.Now().Unix(),
+		Value:     42.5,
+	}
+
+	// Store the data point
+	StoreDataPointBuffer(dataPoint)
+
+	// Verify data was stored by reading it back
+	points := ReadLastDataPoints("TestZeroCache", 1)
+	if len(points) != 1 {
+		t.Errorf("Expected 1 point, got %d", len(points))
+	}
+	if points[0].Value != dataPoint.Value {
+		t.Errorf("Expected value %f, got %f", dataPoint.Value, points[0].Value)
+	}
+	if points[0].Timestamp != dataPoint.Timestamp {
+		t.Errorf("Expected timestamp %d, got %d", dataPoint.Timestamp, points[0].Timestamp)
+	}
+}

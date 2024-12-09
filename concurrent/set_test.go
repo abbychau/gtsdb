@@ -112,6 +112,40 @@ func TestSet_Items(t *testing.T) {
 	}
 }
 
+func TestSet_ForEach(t *testing.T) {
+	s := NewSet[int]()
+	expected := []int{1, 2, 3, 4, 5}
+
+	// Add test data
+	for _, v := range expected {
+		s.Add(v)
+	}
+
+	// Test ForEach
+	visited := make([]int, 0, len(expected))
+	s.ForEach(func(item int) {
+		visited = append(visited, item)
+	})
+
+	// Check if all items were visited
+	if len(visited) != len(expected) {
+		t.Errorf("Expected to visit %d items, but visited %d", len(expected), len(visited))
+	}
+
+	// Create a map for easier lookup
+	visitedMap := make(map[int]bool)
+	for _, v := range visited {
+		visitedMap[v] = true
+	}
+
+	// Verify all expected items were visited
+	for _, v := range expected {
+		if !visitedMap[v] {
+			t.Errorf("Item %d was not visited during ForEach", v)
+		}
+	}
+}
+
 func BenchmarkSet_Add(b *testing.B) {
 	s := NewSet[int]()
 	for i := 0; i < b.N; i++ {

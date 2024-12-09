@@ -103,19 +103,3 @@ func TestPanic(t *testing.T) {
 
 	Panic(expectedMsg)
 }
-
-func TestSetupTestFiles(t *testing.T) {
-	tmpDir, cleanup := SetupTestFiles()
-	defer cleanup()
-
-	// Check if directory exists
-	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
-		t.Errorf("Temporary directory was not created: %v", err)
-	}
-
-	// Check if cleanup works
-	cleanup()
-	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
-		t.Errorf("Temporary directory was not cleaned up")
-	}
-}

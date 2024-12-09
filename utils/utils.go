@@ -62,20 +62,3 @@ func Panic(v any) {
 	fmt.Printf("[%s] 🚨🐹🚨 \n", dateString()) //我被警車包圍了!
 	panic(v)
 }
-
-func SetupTestFiles() (string, func()) {
-	// Create temporary directory
-	tmpDir, err := os.MkdirTemp("", "gtsdb_test")
-	if err != nil {
-		//fatal
-		fmt.Println("Error creating temporary directory:", err)
-		os.Exit(1)
-	}
-
-	// Return cleanup function
-	cleanup := func() {
-		os.RemoveAll(tmpDir)
-	}
-
-	return tmpDir, cleanup
-}
