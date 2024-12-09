@@ -17,6 +17,7 @@ func cleanup() {
 }
 
 func TestStoreAndReadDataPoints(t *testing.T) {
+	cleanup()
 	defer cleanup()
 
 	// Test data
@@ -65,6 +66,7 @@ func TestJsonFormatDataPoints(t *testing.T) {
 }
 
 func TestReadDataPointsWithDownsampling(t *testing.T) {
+	cleanup()
 	defer cleanup()
 
 	// Store test data points
@@ -97,6 +99,7 @@ func TestReadDataPointsWithDownsampling(t *testing.T) {
 }
 
 func TestFlushRemainingDataPoints(t *testing.T) {
+	cleanup()
 	defer cleanup()
 
 	// Store some data
@@ -118,6 +121,7 @@ func TestFlushRemainingDataPoints(t *testing.T) {
 }
 
 func TestReadLastDataPoints(t *testing.T) {
+	cleanup()
 	defer cleanup()
 
 	// Test data - generate 6000 points
@@ -159,6 +163,7 @@ func TestReadLastDataPoints(t *testing.T) {
 func TestInitIDSet(t *testing.T) {
 	cleanup()
 	defer cleanup()
+
 	// Create some test files
 	testFiles := []string{"test1.aof", "test2.aof", "test3.aof"}
 	for _, fname := range testFiles {
