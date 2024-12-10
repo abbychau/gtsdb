@@ -1,4 +1,35 @@
-# Dead Simple Timeseries Database
+# Golang Dead Simple Timeseries Database
+
+[![coverage](/docs/coverage.png)](./docs/coverage-full.png)
+
+## Introduction
+
+This is a simple timeseries database written in Golang. It is designed to be simple and easy to use. It is designed to be used in IoT and other applications where you need to store timeseries data.
+
+Simple is not only in terms of usage but also in terms of a fundamentally new ways of storing data.
+
+Let's compare it with other databases, usually, a database do these things:
+1. Write data to WAL (Write Ahead Log) into disk
+2. Stream IO to memory
+3. Do some internal processing like indexing and caching
+4. Write data to disk by blocks, fsync to disk for durability
+5. Update or erase WAL cursor (maybe an offset or ID)
+6. When disaster strikes, read data from disk and replay WAL to recover data
+7. Read data from index and file blocks
+
+I think in a different way. I think, if WAL is anyway needed for a production grade database, why not just use WAL for everything:
+1. Write data to WAL
+2. Create indexes conditionally
+3. Read data from WAL and indexes
+
+This way, we saves a lot of IO and MEMORY USAGE. That's why I call it a dead simple timeseries database. I don't scarifice durability. And reading from Index is still O(log n).
+
+I don't want to say this is perfect. So here is the tradeoff: "GTSDB needs more file handles than other databases" because it keeps WAL open for reading and writing, but I think it's worth it, especially for weak hardwares. And more importantly, we can make a LRU of file handles when it is REALLY needed.
+
+You can see the performance of this database in the performance section. (It is way better than you can expect by this design even it's just in Golang)
+
+Am I going to write it in Rust/C++/Zig? Yes. I love Rust but GTSDB is still highly experimental and I want to make it more stable before I write it in Rust. I still have a lot of ideas to implement and they sometimes contradict each other. So... I'm still in Golang. Even so, I made it in very high code coverage and with some different internal and end-to-end benchmarks. If you want to use it in production, you can use it. Just make sure to checkout a git hash that is with a green tick in the CI. 
+
 
 ## Run / Compile
 
@@ -9,56 +40,127 @@ go build .
 
 ## Usage
 
-```bash
-# Start the server
-./gtsdb
+### HTTP API (POST to :5556)
 
-# Connect to the server(nc/socat/telnet/...)
+```json
 # Write data
-# <key>,<timestamp>,<value>
-sensor1,1717965210,36.5
-sensor2,1717965210,36.5
-sensor1,1717965211,36.6
-myhomeshit,1717965211,36.6
+# POST /
+{
+    "operation":"write",
+    "Write": {
+        "id" : "a_sensor1",
+        "Value": 32242424243333333333.3333
+    }
+}
+
 # Read data
-# <key>,<start-timestamp>,<end-timestamp>,<downsampling>
-# for downsampling, 0 or 1 means no downsampling, 2 means take average for every 2 seconds, 3 means take average for every 3 seconds and so on
-sensor1,1717965210,1717965211,3
-sensor2,1717965210,1717965211,3600 # 1 hour
-myhomeshit,1717965210,1717965211,7200 # 2 hours
-# Output for input <sensor2,0,1817969274,3600>
-# <key>,<timestamp>,<value>|<key>,<timestamp>,<value>|...\n
-sensor2,1717971018,51.14|sensor2,1717974618,48.96|sensor2,1717978218,49.60|sensor2,1717981819,49.94|sensor2,1717985419,50.22|sensor2,1717989019,50.43|sensor2,1717992619,50.36|sensor2,1717996219,50.23|sensor2,1717999819,50.04|sensor2,1718003419,49.08|sensor2,1718007019,50.67|sensor2,1718010619,50.05|sensor2,1718014219,50.25|sensor2,1718017819,50.21|sensor2,1718021419,49.92|sensor2,1718025019,50.03|sensor2,1718028619,49.92|sensor2,1718032219,51.40|sensor2,1718035819,49.71|sensor2,1718039419,49.58|sensor2,1718043019,50.20|sensor2,1718046619,50.34|sensor2,1718050219,49.23|sensor2,1718053819,49.90|sensor2,1718057419,50.14|sensor2,1718061019,50.43|sensor2,1718064619,49.91|sensor2,1718068219,51.11|sensor2,1718071819,49.15|sensor2,1718075419,50.90|sensor2,1718079019,50.08|sensor2,1718082619,49.83|sensor2,1718086219,49.42|sensor2,1718089819,50.61|sensor2,1718093419,49.19|sensor2,1718097019,50.04|sensor2,1718100619,48.97|sensor2,1718104219,49.24|sensor2,1718107819,49.03|sensor2,1718111419,49.79|sensor2,1718115019,50.01|sensor2,1718118619,51.46|sensor2,1718122219,49.63|sensor2,1718125819,51.18|sensor2,1718129419,49.45|sensor2,1718133019,51.50|sensor2,1718136619,49.67|sensor2,1718140219,50.61|sensor2,1718143819,49.43|sensor2,1718147419,51.43|sensor2,1718151019,50.35|sensor2,1718154619,49.66|sensor2,1718158219,51.05|sensor2,1718161819,49.52|sensor2,1718165419,50.39|sensor2,1718169019,49.73|sensor2,1718172619,51.45|sensor2,1718176219,49.95|sensor2,1718179819,50.27|sensor2,1718183419,49.77|sensor2,1718187019,49.89|sensor2,1718190619,49.61|sensor2,1718194219,50.85|sensor2,1718197819,50.84|sensor2,1718201419,49.98|sensor2,1718205019,50.69|sensor2,1718208619,49.87|sensor2,1718212219,50.41|sensor2,1718215819,51.22|sensor2,1718219419,51.35|sensor2,1718223019,51.53|sensor2,1718226619,49.94|sensor2,1718230219,50.19|sensor2,1718233819,50.91|sensor2,1718237419,49.61|sensor2,1718241019,50.62|sensor2,1718244619,48.86|sensor2,1718248219,49.18|sensor2,1718251819,49.97|sensor2,1718255419,49.69
+# POST /
+{
+    "operation":"read",
+    "Read": {
+        "id" : "a_sensor1",
+        "start_timestamp": 1717965210,
+        "end_timestamp": 1717965211,
+        "downsampling": 3
+    }
+}
+{
+    "operation":"read",
+    "Read": {
+        "id" : "a_sensor1",
+        "lastx": 1
+    }
+}
+
+# Get all keys
+# POST /
+{
+    "operation":"ids"
+}
+
+# Subscribe to a key
+# POST /
+{
+  "operation": "subscribe",
+  "key": "sensor1"
+}
+
+# Unsubscribe to a key
+# POST /
+{
+  "operation": "unsubscribe",
+  "key": "sensor1"
+}
 ```
 
 ## Performance
 
+### Database Performance
+
 [Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
+
+- Run: `go test -benchmem -run=^$ -bench ^BenchmarkMain$ -benchtime=5s`
 
 ```
 goos: windows
 goarch: amd64
 pkg: gtsdb
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24          249386             47291 ns/op
+BenchmarkMain-24          311648             19172 ns/op            4245 B/op            5 allocs/op
 PASS
-ok      gtsdb   22.267s
+ok      gtsdb   6.439s
 ```
+
 
 Explanation:
 - This benchmark does 50% read and 50% write operations to 100 different keys(devices).
-- It performs 249386 operations in 22.267 seconds. The operations include read and write operations.
+- It performs 249386 operations in 6 seconds. The operations include read and write operations.
 
-## Todo
+
+### Concurrent Internals Performance
+
+- Run: `make benchmark`
+
+```
+goos: windows
+goarch: amd64
+pkg: gtsdb/concurrent
+cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
+BenchmarkMap/Sequential_Store-24        12363549               477.2 ns/o     154 B/op           6 allocs/op
+BenchmarkMap/Sequential_Load-24         44461207               209.5 ns/o       7 B/op           0 allocs/op
+BenchmarkMap/Concurrent_Store-24        36248278               256.2 ns/o      56 B/op           4 allocs/op
+BenchmarkMap/Concurrent_Load-24         63952998               216.3 ns/o       7 B/op           0 allocs/op
+BenchmarkMap/Concurrent_Mixed-24        18266863               427.2 ns/o      94 B/op           3 allocs/op
+BenchmarkSet_Add-24                     60995383               208.0 ns/o      52 B/op           0 allocs/op
+BenchmarkSet_Contains-24                484518542               12.36 ns/op              0 B/op          0 allocs/op
+BenchmarkSet_ConcurrentAdd-24           43510735               213.0 ns/o      37 B/op           0 allocs/op
+PASS
+ok      gtsdb/concurrent        147.859s
+```
+
+
+
+
+## Done/Todo/Feature list
 
 - [x] Simple Indexing so to avoid full file scanning
 - [x] Downsampling data
 - [x] TCP Server
 - [x] Tests
-- [ ] HTTP Server (REST API)
-- [ ] More Downsampling options(like sum, min, max, etc.)
-- [ ] Do errcheck Handling
-- [ ] Subscription and then streaming (almost finished) (cmd: `subscribe,sensor1`, `unsubscribe,sensor1`)
+- [x] HTTP Server (REST API)
+- [x] More Downsampling options(like sum, min, max, etc.)
+- [x] Do errcheck Handling
+- [x] Subscription and then streaming (cmd: `subscribe,sensor1`, `unsubscribe,sensor1`)
+- [x] Buffering data in memory before writing to disk, this is to serve recent data faster and enhance write performance
+- [x] 80% test coverage ([Report](./docs/coverage.html))
+
+## Generate Test Coverage Report
+
+```bash
+go test ./... -coverprofile=docs/coverage -p 1
+go tool cover -html docs/coverage -o docs/coverage.html
+start .\docs\coverage.html
+```
 
 ## License
 

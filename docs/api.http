@@ -1,0 +1,65 @@
+@hostname = http://localhost:5556
+
+### Write data
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "write",
+    "Write": {
+        "id": "a_sensor1",
+        "Value": 32242424243333333333.3333
+    }
+}
+
+### Read data with time range and downsampling
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "read",
+    "Read": {
+        "id": "a_sensor1",
+        "start_timestamp": 1717965210,
+        "end_timestamp": 1717965211,
+        "downsampling": 3
+    }
+}
+
+### Read last X records
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "read",
+    "Read": {
+        "id": "a_sensor1",
+        "lastx": 1
+    }
+}
+
+### Subscribe to a key
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "subscribe",
+    "key": "sensor1"
+}
+
+### Unsubscribe from a key
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "unsubscribe",
+    "key": "sensor1"
+}
+
+### Get All keys
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "ids"
+}

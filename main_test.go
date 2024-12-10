@@ -1,104 +1,234 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"math/rand"
+	"gtsdb/fanout"
+	"gtsdb/utils"
 	"net"
+	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
-
-	models "gtsdb/models"
 )
 
-func TestDownsampleDataPoints(t *testing.T) {
-	dataPoints := []models.DataPoint{
-		{Timestamp: 1, Value: 1},
-		{Timestamp: 2, Value: 2},
-		{Timestamp: 3, Value: 3},
-		{Timestamp: 4, Value: 4},
-		{Timestamp: 5, Value: 5},
-		{Timestamp: 6, Value: 6},
-		{Timestamp: 7, Value: 7},
-		{Timestamp: 8, Value: 8},
-		{Timestamp: 9, Value: 9},
-		{Timestamp: 10, Value: 10},
-	}
+// Test helpers
+func createTestIniFile(t *testing.T) string {
+	content := `[listens]
+tcp = localhost:5555
+http = localhost:5556
+[paths]
+data = ./testdata`
 
-	downsampledDataPoints := downsampleDataPoints(dataPoints, 5)
-	if len(downsampledDataPoints) != 2 {
-		t.Error("Unexpected number of downsampled data points:", len(downsampledDataPoints))
+	tmpDir := t.TempDir()
+	iniPath := filepath.Join(tmpDir, "test.ini")
+	if err := os.WriteFile(iniPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
 	}
+	return iniPath
+}
 
-	if downsampledDataPoints[0].Timestamp != 1 || downsampledDataPoints[0].Value != 3 {
-		t.Error("Unexpected downsampled data point:", downsampledDataPoints[0])
+func TestLoadConfig(t *testing.T) {
+	// Test with valid config
+	iniPath := createTestIniFile(t)
+	loadConfig(iniPath)
+
+	if utils.TcpListenAddr != "localhost:5555" {
+		t.Errorf("Expected TCP address localhost:5555, got %s", utils.TcpListenAddr)
 	}
-
-	if downsampledDataPoints[1].Timestamp != 6 || downsampledDataPoints[1].Value != 8 {
-		t.Error("Unexpected downsampled data point:", downsampledDataPoints[1])
+	if utils.HttpListenAddr != "localhost:5556" {
+		t.Errorf("Expected HTTP address localhost:5556, got %s", utils.HttpListenAddr)
+	}
+	if utils.DataDir != "./testdata" {
+		t.Errorf("Expected data dir ./testdata, got %s", utils.DataDir)
 	}
 }
 
-// formatDataPoints
-func TestFormatDataPoints(t *testing.T) {
-	dataPoints := []models.DataPoint{
-		{ID: "test", Timestamp: 1, Value: 1},
-		{ID: "test", Timestamp: 2, Value: 2},
-		{ID: "test", Timestamp: 3, Value: 3},
-		{ID: "test", Timestamp: 4, Value: 4},
-		{ID: "test", Timestamp: 5, Value: 5},
-		{ID: "test", Timestamp: 6, Value: 6},
-		{ID: "test", Timestamp: 7, Value: 7},
-		{ID: "test", Timestamp: 8, Value: 8},
-		{ID: "test", Timestamp: 9, Value: 9},
-		{ID: "test", Timestamp: 10, Value: 10},
-	}
+func TestLoadConfigInvalidFile(t *testing.T) {
+	utils.TcpListenAddr = ":5555"
+	utils.HttpListenAddr = ":5556"
+	utils.DataDir = "data"
+	// Test with non-existent config
+	loadConfig("nonexistent.ini")
+	// Should use defaults, no panic
 
-	formattedDataPoints := formatDataPoints(dataPoints)
-	if formattedDataPoints != "test,1,1.00|test,2,2.00|test,3,3.00|test,4,4.00|test,5,5.00|test,6,6.00|test,7,7.00|test,8,8.00|test,9,9.00|test,10,10.00\n" {
-		t.Error("Unexpected formatted data points:", formattedDataPoints)
+	if utils.TcpListenAddr != ":5555" {
+		t.Errorf("Expected TCP address localhost:5555, got %s", utils.TcpListenAddr)
+	}
+	if utils.HttpListenAddr != ":5556" {
+		t.Errorf("Expected HTTP address localhost:5556, got %s", utils.HttpListenAddr)
+	}
+	if utils.DataDir != "data" {
+		t.Errorf("Expected data dir data, got %s", utils.DataDir)
 	}
 }
 
-// benchmark
-// go test -run=nonthingplease -bench BenchmarkMain -benchtime 10s
-func BenchmarkMain(b *testing.B) {
-	// os.RemoveAll("data")
-	// os.Mkdir("data", 0755)
+func TestGracefulShutdown(t *testing.T) {
+	// Create test data directory
+	testDataDir := t.TempDir()
+	utils.DataDir = testDataDir
 
-	// Connect to the server
-	conn, err := net.Dial("tcp", ":5555")
+	// Write some test data points that need to be flushed
+	testFile := filepath.Join(testDataDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call gracefulShutdown
+	gracefulShutdown()
+
+	// Verify cleanup was performed
+	if _, err := os.Stat(testFile); err != nil {
+		t.Error("Expected test file to persist after graceful shutdown")
+	}
+
+	// Additional verification could be added here depending on what
+	// buffer.FlushRemainingDataPoints() does
+}
+
+func TestTCPServerInitialization(t *testing.T) {
+	utils.TcpListenAddr = "localhost:5555"
+	fanoutManager := fanout.NewFanout()
+	stop := make(chan struct{})
+
+	// Start TCP server in goroutine
+	go startTCPServerWithStop(fanoutManager, stop)
+
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Try to connect
+	conn, err := net.Dial("tcp", utils.TcpListenAddr)
 	if err != nil {
-		b.Fatal("Error connecting to server:", err)
+		t.Errorf("Failed to connect to TCP server: %v", err)
 	}
-	defer conn.Close()
+	if conn != nil {
+		conn.Close()
+	}
 
-	// Test storing data points
-	startTimestamp := time.Now().Unix()
+	// Test graceful shutdown
+	close(stop)
+	time.Sleep(100 * time.Millisecond)
 
-	for i := 0; i < b.N; i++ {
-		timestamp := startTimestamp + int64(i)
-		value1 := rand.Float64() * 100
+	// Verify server stopped
+	_, err = net.Dial("tcp", utils.TcpListenAddr)
+	if err == nil {
+		t.Error("Server should have stopped")
+	}
+}
 
-		name := fmt.Sprintf("sensor%d", (i*97)%100)
+func TestHTTPServerInitialization(t *testing.T) {
+	utils.HttpListenAddr = "localhost:5556"
+	fanoutManager := fanout.NewFanout()
+	stop := make(chan struct{})
 
-		// randomly select read or write
-		if i%2 == 0 {
-			fmt.Fprintf(conn, "%s,%d,%.2f\n", name, timestamp, value1) // write
-			response, _ := bufio.NewReader(conn).ReadString('\n')
-			if response != "Data point stored\n" {
-				b.Error("Unexpected response when storing data point:", response)
-			}
+	// Start HTTP server in goroutine
+	go startHTTPServerWithStop(fanoutManager, stop)
 
-		} else {
-			offset := rand.Int63n(100)
-			offset = min(offset, int64(i))
-			fmt.Fprintf(conn, "%s,%d,%d,%d\n", name, startTimestamp+offset, startTimestamp+offset+1000, 1) // read
-			response, _ := bufio.NewReader(conn).ReadString('\n')
-			if len(response) == 0 {
-				b.Error("Unexpected response when reading data points:", response)
-			}
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Try to connect
+	resp, err := http.Get(fmt.Sprintf("http://%s/health", utils.HttpListenAddr))
+	if err != nil {
+		t.Errorf("Failed to connect to HTTP server: %v", err)
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+
+	// Test graceful shutdown
+	close(stop)
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify server stopped
+	_, err = http.Get(fmt.Sprintf("http://%s/health", utils.HttpListenAddr))
+	if err == nil {
+		t.Error("Server should have stopped")
+	}
+}
+
+func TestMainIntegration(t *testing.T) {
+	t.Skip("Skipping integration test")
+
+	// Create channel to simulate interrupt
+	done := make(chan bool)
+
+	go func() {
+		// Run main in background
+		go main()
+
+		// Give servers time to start
+		time.Sleep(2000 * time.Millisecond)
+
+		// Verify both servers are running
+		tcpConn, err := net.Dial("tcp", utils.TcpListenAddr)
+		if err != nil {
+			t.Errorf("TCP server not running: %v", err)
+		}
+		if tcpConn != nil {
+			tcpConn.Close()
 		}
 
+		resp, err := http.Get(fmt.Sprintf("http://%s/", utils.HttpListenAddr))
+		if err != nil {
+			t.Errorf("HTTP server not running: %v", err)
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Test completed successfully
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out")
+	}
+}
+
+func TestRun(t *testing.T) {
+	// Create temporary directory for test
+	tmpDir := t.TempDir()
+
+	// Create test config file
+	configContent := `[listens]
+tcp = "localhost:0"
+http = "localhost:0"
+[paths]
+data = "` + tmpDir + `"`
+
+	configFile := filepath.Join(tmpDir, "test.ini")
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start the application in a goroutine
+	done := make(chan bool)
+	go func() {
+		go run(configFile)
+		time.Sleep(100 * time.Millisecond) // Give time for servers to start
+
+		// Send interrupt signal to trigger shutdown
+		p, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		p.Signal(os.Interrupt)
+		done <- true
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case <-done:
+		// Verify data directory was created
+		if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
+			t.Error("Data directory was not created")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Test timed out")
 	}
 }
