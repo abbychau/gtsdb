@@ -3,3 +3,4 @@ data/*.idx
 gtsdb
 buffer/testdata/*
 testdata/*
+gtsdb.exe

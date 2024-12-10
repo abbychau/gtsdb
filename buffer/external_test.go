@@ -10,6 +10,10 @@ import (
 
 func cleanup() {
 	utils.DataDir = "../testdata"
+	// create folder if not exists
+	if _, err := os.Stat(utils.DataDir); os.IsNotExist(err) {
+		os.Mkdir(utils.DataDir, 0755)
+	}
 	files, _ := os.ReadDir(utils.DataDir)
 	for _, file := range files {
 		os.Remove(utils.DataDir + "/" + file.Name())
