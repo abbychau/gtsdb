@@ -1,0 +1,11 @@
+{
+    "apps" : [
+        {
+            "name"       : "gtsdb",
+            "script"     : "./gtsdb",
+            "exec_interpreter": "none",
+            "exec_mode"  : "fork_mode",
+            "watch"      : true
+        }
+    ]
+}
