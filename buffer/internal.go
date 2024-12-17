@@ -2,32 +2,48 @@ package buffer
 
 import (
 	"bufio"
-	"fmt"
+	"encoding/binary"
 	"gtsdb/concurrent"
 	"gtsdb/models"
 	"gtsdb/utils"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"sync/atomic"
 )
+
+func writeBinary(file *os.File, data ...interface{}) {
+	for _, d := range data {
+		err := binary.Write(file, binary.LittleEndian, d)
+		if err != nil {
+			utils.Panic(err)
+		}
+	}
+}
+
+func readBinary(reader io.Reader, data ...interface{}) error {
+	for _, d := range data {
+		err := binary.Read(reader, binary.LittleEndian, d)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
-		line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
-		dataFile.WriteString(line)
+		writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value)
 
 		countValue, _ := idToCountMap.Load(dataPointId)
 		count := countValue
 		count.Add(1)
 
 		if count.Load()%indexInterval == 0 {
-			//end position of this file
 			offset, _ := dataFile.Seek(0, io.SeekEnd)
-			offset -= int64(len(line))
+			offset -= int64(binary.Size(dataPoint.Timestamp) + binary.Size(dataPoint.Value))
 			updateIndexFile(indexFile, dataPoint.Timestamp, offset)
 		}
 	}
@@ -65,18 +81,16 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	file := prepareFileHandles(id+".aof", dataFileHandles)
 	reader := bufio.NewReader(file)
 
-	//seek the last x bytes using offset
-	// line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
-	// 26 * count
-	_, err := file.Seek(int64(-26*count), io.SeekEnd)
+	_, err := file.Seek(int64(-16*count), io.SeekEnd)
 	if err != nil {
-		//if the file is smaller than the offset, seek to the beginning
 		file.Seek(0, io.SeekStart)
 	}
 
 	var dataPoints []models.DataPoint
 	for {
-		line, err := reader.ReadString('\n')
+		var timestamp int64
+		var value float64
+		err := readBinary(reader, &timestamp, &value)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -84,13 +98,6 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 			utils.Error("Error reading file: %v", err)
 			return nil, err
 		}
-
-		parts := strings.Split(strings.TrimSpace(line), ",")
-		//utils.Debugln(parts)
-		trimmedTimestamp := strings.TrimSpace(parts[0])
-		timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
-		trimmedValue := strings.TrimSpace(parts[1])
-		value, _ := strconv.ParseFloat(trimmedValue, 64)
 
 		dataPoints = append(dataPoints, models.DataPoint{
 			ID:        id,
@@ -103,8 +110,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 }
 
 func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
-	line := fmt.Sprintf("%d,%d\n", timestamp, offset)
-	indexFile.WriteString(line)
+	writeBinary(indexFile, timestamp, offset)
 }
 
 func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint {
@@ -126,7 +132,9 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 		}
 
 		for {
-			line, err := indexReader.ReadString('\n')
+			var timestamp int64
+			var fileOffset int64
+			err := readBinary(indexReader, &timestamp, &fileOffset)
 			if err != nil {
 				if err == io.EOF {
 					break
@@ -134,15 +142,12 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 					utils.Error("Error reading index file: %v", err)
 					return nil
 				}
-
 			}
 
-			parts := strings.Split(strings.TrimSpace(line), ",")
-			timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
 			if timestamp > startTime {
 				break
 			}
-			offset, _ = strconv.ParseInt(parts[1], 10, 64)
+			offset = fileOffset
 		}
 
 		_, err = file.Seek(offset, io.SeekStart)
@@ -159,7 +164,9 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 	}
 
 	for {
-		line, err := reader.ReadString('\n')
+		var timestamp int64
+		var value float64
+		err := readBinary(reader, &timestamp, &value)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -167,10 +174,6 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
 			utils.Error("Error reading file: %v", err)
 			return nil
 		}
-
-		parts := strings.Split(strings.TrimSpace(line), ",")
-		timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
-		value, _ := strconv.ParseFloat(parts[1], 64)
 
 		if timestamp > endTime {
 			break
@@ -257,7 +260,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 
 	for _, dp := range dataPoints {
 		if dp.Timestamp-intervalStart >= int64(downsample) {
-			// Reached the end of the current interval
 			if intervalCount > 0 {
 				var value float64
 				switch aggregation {
@@ -282,7 +284,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 					Value:     value,
 				})
 			}
-			// Start a new interval
 			intervalStart = dp.Timestamp
 			intervalSum = dp.Value
 			intervalCount = 1
@@ -291,7 +292,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 			intervalFirst = dp.Value
 			intervalLast = dp.Value
 		} else {
-			// Accumulate values within the current interval
 			intervalSum += dp.Value
 			intervalCount++
 			if dp.Value < intervalMin {
@@ -304,7 +304,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 		}
 	}
 
-	// Process the last interval
 	if intervalCount > 0 {
 		var value float64
 		switch aggregation {
