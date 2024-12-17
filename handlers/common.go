@@ -22,10 +22,11 @@ type ReadRequest struct {
 }
 
 type Operation struct {
-	Operation string        `json:"operation"` // "write", "read", "flush", "subscribe"
-	Write     *WriteRequest `json:"write,omitempty"`
-	Read      *ReadRequest  `json:"read,omitempty"`
-	DeviceID  string        `json:"deviceId,omitempty"`
+	Operation  string        `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey"
+	Write      *WriteRequest `json:"write,omitempty"`
+	Read       *ReadRequest  `json:"read,omitempty"`
+	DeviceID   string        `json:"deviceId,omitempty"`
+	ToDeviceID string        `json:"toDeviceId,omitempty"`
 }
 
 type Response struct {
@@ -36,6 +37,19 @@ type Response struct {
 
 func HandleOperation(op Operation) Response {
 	switch op.Operation {
+	case "initkey":
+		buffer.InitKey(op.DeviceID)
+		return Response{Success: true, Message: "Key initialized"}
+	case "renamekey":
+		if op.DeviceID == "" || op.DeviceID == "default" {
+			return Response{Success: false, Message: "Invalid key name"}
+		}
+		buffer.RenameKey(op.DeviceID, op.ToDeviceID)
+		return Response{Success: true, Message: "Key renamed"}
+
+	case "deletekey":
+		buffer.DeleteKey(op.DeviceID)
+		return Response{Success: true, Message: "Key deleted"}
 	case "write":
 		if op.Write == nil {
 			return Response{Success: false, Message: "Write data required"}

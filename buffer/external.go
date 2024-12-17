@@ -25,6 +25,36 @@ func InitIDSet() {
 	}
 }
 
+func InitKey(dataPointId string) {
+	prepareFileHandles(dataPointId+".aof", dataFileHandles)
+	prepareFileHandles(dataPointId+".idx", indexFileHandles)
+	allIds.Add(dataPointId)
+}
+func RenameKey(dataPointId, newId string) {
+	renameLock.Lock()
+	//close file handles
+	dataFileHandles.Delete(dataPointId + ".aof")
+	indexFileHandles.Delete(dataPointId + ".idx")
+	allIds.Remove(dataPointId)
+
+	//rename the file
+	os.Rename(utils.DataDir+dataPointId+".aof", utils.DataDir+newId+".aof")
+	os.Rename(utils.DataDir+dataPointId+".idx", utils.DataDir+newId+".idx")
+	allIds.Add(newId)
+
+	renameLock.Unlock()
+}
+func DeleteKey(dataPointId string) {
+	renameLock.Lock()
+	dataFileHandles.Delete(dataPointId + ".aof")
+	indexFileHandles.Delete(dataPointId + ".idx")
+	allIds.Remove(dataPointId)
+	//delete the file
+	os.Remove(utils.DataDir + dataPointId + ".aof")
+	os.Remove(utils.DataDir + dataPointId + ".idx")
+	renameLock.Unlock()
+}
+
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
 	allIds.Add(dataPoint.ID)
 	if cacheSize == 0 {

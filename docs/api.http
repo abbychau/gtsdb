@@ -63,3 +63,39 @@ Content-Type: application/json
 {
     "operation": "ids"
 }
+
+### Flush all data points
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "flush"
+}
+
+### Initialize a new key
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "initkey",
+    "deviceId": "new_sensor"
+}
+
+### Rename a key
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "renamekey",
+    "deviceId": "old_sensor_name",
+    "toDeviceId": "new_sensor_name"
+}
+
+### Delete a key
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "deletekey",
+    "deviceId": "sensor_to_delete"
+}

@@ -5,6 +5,7 @@ import (
 	"gtsdb/models"
 	"gtsdb/synchronous"
 	"os"
+	"sync"
 	"sync/atomic"
 )
 
@@ -20,3 +21,6 @@ var allIds = concurrent.NewSet[string]()
 
 var lastValue = make(map[string]float64)
 var lastTimestamp = make(map[string]int64)
+
+// mutex
+var renameLock sync.Mutex
