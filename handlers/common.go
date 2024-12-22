@@ -37,6 +37,18 @@ type Response struct {
 
 func HandleOperation(op Operation) Response {
 	switch op.Operation {
+	case "serverInfo":
+		/*
+			data:
+			    version: "1.0"
+				key-count: 332
+		*/
+		var data = map[string]interface{}{}
+		data["version"] = "1.0"
+		data["key-count"] = len(buffer.GetAllIds())
+		data["health"] = "ok"
+
+		return Response{Success: true, Data: data}
 	case "initkey":
 		buffer.InitKey(op.DeviceID)
 		return Response{Success: true, Message: "Key initialized"}

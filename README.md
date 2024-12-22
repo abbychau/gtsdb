@@ -106,9 +106,9 @@ goos: windows
 goarch: amd64
 pkg: gtsdb
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24          311648             19172 ns/op            4245 B/op            5 allocs/op
+BenchmarkMain-24         6158864             19707 ns/op         4245 B/op           5 allocs/op
 PASS
-ok      gtsdb   6.439s
+ok      gtsdb   141.340s
 ```
 
 
