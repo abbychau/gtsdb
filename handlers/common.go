@@ -3,6 +3,7 @@ package handlers
 import (
 	"gtsdb/buffer"
 	"gtsdb/models"
+	"gtsdb/utils"
 	"time"
 )
 
@@ -69,6 +70,12 @@ func HandleOperation(op Operation) Response {
 		if op.Write.Timestamp <= 0 {
 			op.Write.Timestamp = time.Now().Unix()
 		}
+
+		if op.Write.ID == "" {
+			utils.Warning("ID required")
+			return Response{Success: false, Message: "ID required"}
+		}
+
 		dataPoint := models.DataPoint{
 			ID:        op.Write.ID,
 			Timestamp: op.Write.Timestamp,
