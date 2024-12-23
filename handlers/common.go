@@ -15,9 +15,9 @@ type WriteRequest struct {
 
 type ReadRequest struct {
 	ID          string `json:"id"`
-	StartTime   int64  `json:"startTime,omitempty"`
-	EndTime     int64  `json:"endTime,omitempty"`
-	Downsample  int    `json:"downsample,omitempty"`
+	StartTime   int64  `json:"start_timestamp,omitempty"`
+	EndTime     int64  `json:"end_timestamp,omitempty"`
+	Downsample  int    `json:"downsampling,omitempty"`
 	LastX       int    `json:"lastx,omitempty"`
 	Aggregation string `json:"aggregation,omitempty"`
 }
@@ -91,7 +91,7 @@ func HandleOperation(op Operation) Response {
 		if op.Read.Aggregation == "" {
 			op.Read.Aggregation = "avg"
 		}
-
+		utils.Log("Read request: %v", op.Read)
 		var response []models.DataPoint
 		if op.Read.LastX > 0 || (op.Read.StartTime == 0 && op.Read.EndTime == 0) {
 			last := op.Read.LastX
@@ -103,6 +103,7 @@ func HandleOperation(op Operation) Response {
 			}
 			response = buffer.ReadLastDataPoints(op.Read.ID, last)
 		} else {
+
 			response = buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
 		}
 		return Response{Success: true, Data: response}
