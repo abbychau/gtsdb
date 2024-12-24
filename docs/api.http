@@ -78,7 +78,7 @@ Content-Type: application/json
 
 {
     "operation": "initkey",
-    "deviceId": "new_sensor"
+    "key": "new_sensor"
 }
 
 ### Rename a key
@@ -87,8 +87,8 @@ Content-Type: application/json
 
 {
     "operation": "renamekey",
-    "deviceId": "old_sensor_name",
-    "toDeviceId": "new_sensor_name"
+    "key": "old_sensor_name",
+    "toKey": "new_sensor_name"
 }
 
 ### Delete a key
@@ -97,5 +97,5 @@ Content-Type: application/json
 
 {
     "operation": "deletekey",
-    "deviceId": "sensor_to_delete"
+    "key": "sensor_to_delete"
 }

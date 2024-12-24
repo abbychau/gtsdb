@@ -20,38 +20,74 @@ func InitIDSet() {
 	for _, file := range files {
 		if strings.HasSuffix(file.Name(), ".aof") {
 			id := file.Name()[:len(file.Name())-4]
-			allIds.Add(id)
+			if id != "" {
+				allIds.Add(id)
+			}
 		}
 	}
 }
 
 func InitKey(dataPointId string) {
+	if dataPointId == "" {
+		return
+	}
 	prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	allIds.Add(dataPointId)
 }
 func RenameKey(dataPointId, newId string) {
+	if newId == "" || dataPointId == "" {
+		return
+	}
+	utils.Log("Renaming key: %v to %v", dataPointId, newId)
 	renameLock.Lock()
-	//close file handles
-	dataFileHandles.Delete(dataPointId + ".aof")
-	indexFileHandles.Delete(dataPointId + ".idx")
+
+	dfk := dataPointId + ".aof"
+	ifk := dataPointId + ".idx"
+
+	dataFileHandles.Delete(dfk)
+	indexFileHandles.Delete(ifk)
 	allIds.Remove(dataPointId)
 
+	newDfk := newId + ".aof"
+	newIfk := newId + ".idx"
+
 	//rename the file
-	os.Rename(utils.DataDir+dataPointId+".aof", utils.DataDir+newId+".aof")
-	os.Rename(utils.DataDir+dataPointId+".idx", utils.DataDir+newId+".idx")
+	os.Rename(utils.DataDir+"/"+dfk, utils.DataDir+"/"+newDfk)
+	os.Rename(utils.DataDir+"/"+ifk, utils.DataDir+"/"+newIfk)
+
+	prepareFileHandles(newDfk, dataFileHandles)
+	prepareFileHandles(newIfk, indexFileHandles)
+
 	allIds.Add(newId)
 
 	renameLock.Unlock()
 }
 func DeleteKey(dataPointId string) {
+	utils.Log("Deleting key: %v", dataPointId)
 	renameLock.Lock()
-	dataFileHandles.Delete(dataPointId + ".aof")
-	indexFileHandles.Delete(dataPointId + ".idx")
+	dfk := dataPointId + ".aof"
+	ifk := dataPointId + ".idx"
+
+	//close file handles
+	dfh, _ := dataFileHandles.Load(dfk)
+	dfh.Close()
+	ifh, _ := indexFileHandles.Load(ifk)
+	ifh.Close()
+
+	dataFileHandles.Delete(dfk)
+	indexFileHandles.Delete(ifk)
 	allIds.Remove(dataPointId)
+
 	//delete the file
-	os.Remove(utils.DataDir + dataPointId + ".aof")
-	os.Remove(utils.DataDir + dataPointId + ".idx")
+	err := os.Remove(utils.DataDir + "/" + dfk)
+	if err != nil {
+		utils.Errorln(err)
+	}
+	err = os.Remove(utils.DataDir + "/" + ifk)
+	if err != nil {
+		utils.Errorln(err)
+	}
 	renameLock.Unlock()
 }
 

@@ -9,13 +9,11 @@ import (
 )
 
 type WriteRequest struct {
-	ID        string  `json:"id"`
 	Value     float64 `json:"value"`
 	Timestamp int64   `json:"timestamp,omitempty"`
 }
 
 type ReadRequest struct {
-	ID          string `json:"id"`
 	StartTime   int64  `json:"start_timestamp,omitempty"`
 	EndTime     int64  `json:"end_timestamp,omitempty"`
 	Downsample  int    `json:"downsampling,omitempty"`
@@ -24,11 +22,11 @@ type ReadRequest struct {
 }
 
 type Operation struct {
-	Operation  string        `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey"
-	Write      *WriteRequest `json:"write,omitempty"`
-	Read       *ReadRequest  `json:"read,omitempty"`
-	DeviceID   string        `json:"deviceId,omitempty"`
-	ToDeviceID string        `json:"toDeviceId,omitempty"`
+	Operation string        `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey"
+	Write     *WriteRequest `json:"write,omitempty"`
+	Read      *ReadRequest  `json:"read,omitempty"`
+	Key       string        `json:"key,omitempty"`
+	ToKey     string        `json:"tokey,omitempty"`
 }
 
 type Response struct {
@@ -39,6 +37,10 @@ type Response struct {
 
 func HandleOperation(op Operation) Response {
 	loweredOperation := strings.ToLower(op.Operation)
+
+	if loweredOperation != "serverinfo" && loweredOperation != "ids" && loweredOperation != "flush" && op.Key == "" {
+		return Response{Success: false, Message: "Key required"}
+	}
 	switch loweredOperation {
 	case "serverinfo":
 		var data = map[string]interface{}{}
@@ -48,17 +50,14 @@ func HandleOperation(op Operation) Response {
 
 		return Response{Success: true, Data: data}
 	case "initkey":
-		buffer.InitKey(op.DeviceID)
+		buffer.InitKey(op.Key)
 		return Response{Success: true, Message: "Key initialized"}
 	case "renamekey":
-		if op.DeviceID == "" || op.DeviceID == "default" {
-			return Response{Success: false, Message: "Invalid key name"}
-		}
-		buffer.RenameKey(op.DeviceID, op.ToDeviceID)
+		buffer.RenameKey(op.Key, op.ToKey)
 		return Response{Success: true, Message: "Key renamed"}
 
 	case "deletekey":
-		buffer.DeleteKey(op.DeviceID)
+		buffer.DeleteKey(op.Key)
 		return Response{Success: true, Message: "Key deleted"}
 	case "write":
 		if op.Write == nil {
@@ -68,13 +67,8 @@ func HandleOperation(op Operation) Response {
 			op.Write.Timestamp = time.Now().Unix()
 		}
 
-		if op.Write.ID == "" {
-			utils.Warning("ID required")
-			return Response{Success: false, Message: "ID required"}
-		}
-
 		dataPoint := models.DataPoint{
-			ID:        op.Write.ID,
+			ID:        op.Key,
 			Timestamp: op.Write.Timestamp,
 			Value:     op.Write.Value,
 		}
@@ -98,10 +92,9 @@ func HandleOperation(op Operation) Response {
 			if last < 0 {
 				last = last * -1
 			}
-			response = buffer.ReadLastDataPoints(op.Read.ID, last)
+			response = buffer.ReadLastDataPoints(op.Key, last)
 		} else {
-
-			response = buffer.ReadDataPoints(op.Read.ID, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
+			response = buffer.ReadDataPoints(op.Key, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
 		}
 		return Response{Success: true, Data: response}
 	case "ids":

@@ -30,11 +30,11 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 		}
 
 		if op.Operation == "subscribe" {
-			if op.DeviceID == "" {
+			if op.Key == "" {
 				writeJSON(w, Response{Success: false, Message: "Device ID required"})
 				return
 			}
-			handleSSE(w, op.DeviceID, fanoutManager)
+			handleSSE(w, op.Key, fanoutManager)
 			return
 		}
 
@@ -45,7 +45,7 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 	return mux
 }
 
-func handleSSE(w http.ResponseWriter, deviceID string, fanoutManager *fanout.Fanout) {
+func handleSSE(w http.ResponseWriter, key string, fanoutManager *fanout.Fanout) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -58,7 +58,7 @@ func handleSSE(w http.ResponseWriter, deviceID string, fanoutManager *fanout.Fan
 
 	id := time.Now().UnixNano()
 	fanoutManager.AddConsumer(int(id), func(msg models.DataPoint) {
-		if msg.ID == deviceID {
+		if msg.ID == key {
 			resp := Response{Success: true, Data: msg}
 			jsonData, _ := json.Marshal(resp)
 			fmt.Fprintf(w, "data: %s\n\n", jsonData)

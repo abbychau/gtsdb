@@ -19,8 +19,8 @@ func TestHandleOperation(t *testing.T) {
 	t.Run("Write Operation", func(t *testing.T) {
 		op := Operation{
 			Operation: "write",
+			Key:       "test1",
 			Write: &WriteRequest{
-				ID:    "test1",
 				Value: 42.5,
 			},
 		}
@@ -35,8 +35,8 @@ func TestHandleOperation(t *testing.T) {
 		timestamp := time.Now().Unix()
 		op := Operation{
 			Operation: "write",
+			Key:       "test2",
 			Write: &WriteRequest{
-				ID:        "test2",
 				Value:     23.1,
 				Timestamp: timestamp,
 			},
@@ -65,8 +65,9 @@ func TestHandleOperation(t *testing.T) {
 
 		op := Operation{
 			Operation: "read",
+
+			Key: "test3",
 			Read: &ReadRequest{
-				ID:    "test3",
 				LastX: 2,
 			},
 		}
@@ -89,8 +90,9 @@ func TestHandleOperation(t *testing.T) {
 		now := time.Now().Unix()
 		op := Operation{
 			Operation: "read",
+
+			Key: "test3",
 			Read: &ReadRequest{
-				ID:        "test3",
 				StartTime: now - 3600,
 				EndTime:   now,
 			},
@@ -141,8 +143,9 @@ func writeTestData(t *testing.T, id string, values []float64) {
 	for _, val := range values {
 		op := Operation{
 			Operation: "write",
+
+			Key: id,
 			Write: &WriteRequest{
-				ID:    id,
 				Value: val,
 			},
 		}

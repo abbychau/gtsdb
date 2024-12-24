@@ -31,8 +31,9 @@ func TestSetupHTTPRoutes(t *testing.T) {
 			method: "POST",
 			operation: Operation{
 				Operation: "write",
+
+				Key: "test1",
 				Write: &WriteRequest{
-					ID:    "test1",
 					Value: 42.0,
 				},
 			},
@@ -44,8 +45,9 @@ func TestSetupHTTPRoutes(t *testing.T) {
 			method: "POST",
 			operation: Operation{
 				Operation: "read",
+
+				Key: "test1",
 				Read: &ReadRequest{
-					ID:          "test1",
 					LastX:       1,
 					Aggregation: "avg",
 				},

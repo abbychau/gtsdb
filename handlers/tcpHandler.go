@@ -28,11 +28,11 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		}
 
 		if op.Operation == "subscribe" {
-			if op.DeviceID == "" {
+			if op.Key == "" {
 				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
 				continue
 			}
-			subscribingDevices = append(subscribingDevices, op.DeviceID)
+			subscribingDevices = append(subscribingDevices, op.Key)
 			if len(subscribingDevices) == 1 {
 				utils.Log("Adding consumer %d %v", id, subscribingDevices)
 				fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
@@ -41,17 +41,17 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 					}
 				})
 			}
-			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + op.DeviceID})
+			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + op.Key})
 			continue
 		}
 
 		if op.Operation == "unsubscribe" {
-			if op.DeviceID == "" {
+			if op.Key == "" {
 				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
 				continue
 			}
 			for i, device := range subscribingDevices {
-				if device == op.DeviceID {
+				if device == op.Key {
 					subscribingDevices = append(subscribingDevices[:i], subscribingDevices[i+1:]...)
 					break
 				}
@@ -60,7 +60,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				utils.Log("Removing consumer %d", id)
 				fanoutManager.RemoveConsumer(id)
 			}
-			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.DeviceID})
+			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + op.Key})
 			continue
 		}
 
