@@ -4,6 +4,7 @@ import (
 	"gtsdb/buffer"
 	"gtsdb/models"
 	"gtsdb/utils"
+	"strings"
 	"time"
 )
 
@@ -37,13 +38,9 @@ type Response struct {
 }
 
 func HandleOperation(op Operation) Response {
-	switch op.Operation {
-	case "serverInfo":
-		/*
-			data:
-			    version: "1.0"
-				key-count: 332
-		*/
+	loweredOperation := strings.ToLower(op.Operation)
+	switch loweredOperation {
+	case "serverinfo":
 		var data = map[string]interface{}{}
 		data["version"] = "1.0"
 		data["key-count"] = len(buffer.GetAllIds())
@@ -109,6 +106,8 @@ func HandleOperation(op Operation) Response {
 		return Response{Success: true, Data: response}
 	case "ids":
 		return Response{Success: true, Data: buffer.GetAllIds()}
+	case "idswithcount":
+		return Response{Success: true, Data: buffer.GetAllIdsWithCount()}
 	case "flush":
 		buffer.FlushRemainingDataPoints()
 		return Response{Success: true, Message: "Data points flushed"}

@@ -145,3 +145,16 @@ func JsonFormatDataPoints(dataPoints []models.DataPoint) string {
 func GetAllIds() []string {
 	return allIds.Items()
 }
+
+func GetAllIdsWithCount() map[string]int {
+	keys := allIds.Items()
+
+	idCount := make(map[string]int)
+	for _, key := range keys {
+		fh := prepareFileHandles(key+".aof", dataFileHandles)
+		fileStat, _ := fh.Stat()
+		idCount[key] = int(fileStat.Size() / 16)
+	}
+
+	return idCount
+}
