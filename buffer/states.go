@@ -24,3 +24,4 @@ var lastTimestamp = make(map[string]int64)
 
 // mutex
 var renameLock sync.Mutex
+var dataPatchLocks = concurrent.NewMap[string, *sync.Mutex]()

@@ -91,6 +91,14 @@ go build .
   "operation": "unsubscribe",
   "key": "sensor1"
 }
+
+# Patch data points for a key
+# POST /
+{
+    "operation": "data-patch",
+    "key": "sensor1",
+    "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"
+}
 ```
 
 ## Performance

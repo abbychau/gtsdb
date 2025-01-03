@@ -254,3 +254,141 @@ func TestStoreDataPointBufferWithZeroCache(t *testing.T) {
 		t.Errorf("Expected timestamp %d, got %d", dataPoint.Timestamp, points[0].Timestamp)
 	}
 }
+
+func TestInitKey(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Test initializing a new key
+	testID := "test_init_key"
+	InitKey(testID)
+
+	// Verify files were created
+	if _, err := os.Stat(utils.DataDir + "/" + testID + ".aof"); os.IsNotExist(err) {
+		t.Errorf("Expected .aof file to be created for %s", testID)
+	}
+	if _, err := os.Stat(utils.DataDir + "/" + testID + ".idx"); os.IsNotExist(err) {
+		t.Errorf("Expected .idx file to be created for %s", testID)
+	}
+
+	// Verify ID was added to allIds
+	ids := GetAllIds()
+	found := false
+	for _, id := range ids {
+		if id == testID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected ID %s to be in allIds", testID)
+	}
+
+	InitKey("")
+}
+
+func TestRenameKey(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Create and initialize a test key
+	oldID := "test_rename_old"
+	newID := "test_rename_new"
+
+	// Store some data to create the files
+	dataPoint := models.DataPoint{
+		ID:        oldID,
+		Timestamp: time.Now().Unix(),
+		Value:     42.5,
+	}
+	StoreDataPointBuffer(dataPoint)
+
+	// Rename the key
+	RenameKey(oldID, newID)
+
+	// Verify old files don't exist
+	if _, err := os.Stat(utils.DataDir + "/" + oldID + ".aof"); !os.IsNotExist(err) {
+		t.Errorf("Old .aof file still exists for %s", oldID)
+	}
+	if _, err := os.Stat(utils.DataDir + "/" + oldID + ".idx"); !os.IsNotExist(err) {
+		t.Errorf("Old .idx file still exists for %s", oldID)
+	}
+
+	// Verify new files exist
+	if _, err := os.Stat(utils.DataDir + "/" + newID + ".aof"); os.IsNotExist(err) {
+		t.Errorf("Expected .aof file to exist for %s", newID)
+	}
+	if _, err := os.Stat(utils.DataDir + "/" + newID + ".idx"); os.IsNotExist(err) {
+		t.Errorf("Expected .idx file to exist for %s", newID)
+	}
+
+	// Verify ID changes in allIds
+	ids := GetAllIds()
+	foundOld := false
+	foundNew := false
+	for _, id := range ids {
+		if id == oldID {
+			foundOld = true
+		}
+		if id == newID {
+			foundNew = true
+		}
+	}
+	if foundOld {
+		t.Errorf("Old ID %s should not be in allIds", oldID)
+	}
+	if !foundNew {
+		t.Errorf("New ID %s should be in allIds", newID)
+	}
+
+	RenameKey("", "")
+}
+
+func TestGetAllIdsWithCount(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Create test data with different sizes
+	testData := []struct {
+		id     string
+		points int
+	}{
+		{"test1", 100},
+		{"test2", 50},
+		{"test3", 75},
+	}
+
+	// Store test data points
+	for _, td := range testData {
+		for i := 0; i < td.points; i++ {
+			dataPoint := models.DataPoint{
+				ID:        td.id,
+				Timestamp: time.Now().Unix() + int64(i),
+				Value:     float64(i),
+			}
+			StoreDataPointBuffer(dataPoint)
+		}
+	}
+
+	// Get all IDs with count
+	keyCounts := GetAllIdsWithCount()
+
+	// Verify counts
+	for _, td := range testData {
+		found := false
+		for _, kc := range keyCounts {
+			if kc.Key == td.id {
+				found = true
+				// Note: The actual count might be different due to file size calculation
+				// We just verify that the count is greater than 0
+				if kc.Count <= 0 {
+					t.Errorf("Expected count > 0 for key %s, got %d", td.id, kc.Count)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Key %s not found in results", td.id)
+		}
+	}
+}

@@ -10,3 +10,8 @@ type IndexEntry struct {
 	Timestamp int64 `json:"timestamp"`
 	Offset    int64 `json:"offset"`
 }
+
+type KeyCount struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}

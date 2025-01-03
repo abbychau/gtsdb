@@ -113,7 +113,7 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
 	writeBinary(indexFile, timestamp, offset)
 }
 
-func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint {
+func readFiledDataPoints(id string, startTime int64, endTime int64) []models.DataPoint {
 	file := prepareFileHandles(id+".aof", dataFileHandles)
 	var dataPoints []models.DataPoint
 	reader := bufio.NewReader(file)

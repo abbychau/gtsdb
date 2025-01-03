@@ -55,11 +55,11 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (92.3%)</option>
+				<option value="file0">gtsdb/buffer/external.go (94.9%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (92.7%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (92.3%)</option>
 				
-				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
+				<option value="file2">gtsdb/concurrent/lru.go (95.0%)</option>
 				
 				<option value="file3">gtsdb/concurrent/map.go (100.0%)</option>
 				
@@ -93,8 +93,11 @@ import (
         "gtsdb/models"
         "gtsdb/synchronous"
         "gtsdb/utils"
+        "math"
         "os"
+        "sort"
         "strings"
+        "sync"
 )
 
 func InitIDSet() <span class="cov8" title="1">{
@@ -107,9 +110,90 @@ func InitIDSet() <span class="cov8" title="1">{
         <span class="cov8" title="1">for _, file := range files </span><span class="cov8" title="1">{
                 if strings.HasSuffix(file.Name(), ".aof") </span><span class="cov8" title="1">{
                         id := file.Name()[:len(file.Name())-4]
-                        allIds.Add(id)
-                }</span>
+                        if id != "" </span><span class="cov8" title="1">{
+                                allIds.Add(id)
+                        }</span>
+                }
         }
+}
+
+func InitKey(dataPointId string) <span class="cov8" title="1">{
+        if dataPointId == "" </span><span class="cov8" title="1">{
+                return
+        }</span>
+        <span class="cov8" title="1">prepareFileHandles(dataPointId+".aof", dataFileHandles)
+        prepareFileHandles(dataPointId+".idx", indexFileHandles)
+        allIds.Add(dataPointId)</span>
+}
+func RenameKey(dataPointId, newId string) <span class="cov8" title="1">{
+        if newId == "" || dataPointId == "" </span><span class="cov8" title="1">{
+                return
+        }</span>
+        <span class="cov8" title="1">utils.Log("Renaming key: %v to %v", dataPointId, newId)
+        renameLock.Lock()
+        defer renameLock.Unlock()
+
+        dfk := dataPointId + ".aof"
+        ifk := dataPointId + ".idx"
+        newDfk := newId + ".aof"
+        newIfk := newId + ".idx"
+
+        // Close and remove old file handles
+        if dfh, ok := dataFileHandles.Load(dfk); ok </span><span class="cov8" title="1">{
+                dfh.Close()
+                dataFileHandles.Delete(dfk)
+        }</span>
+        <span class="cov8" title="1">if ifh, ok := indexFileHandles.Load(ifk); ok </span><span class="cov8" title="1">{
+                ifh.Close()
+                indexFileHandles.Delete(ifk)
+        }</span>
+
+        // Remove from allIds before renaming
+        <span class="cov8" title="1">allIds.Remove(dataPointId)
+
+        // Rename the files
+        err1 := os.Rename(utils.DataDir+"/"+dfk, utils.DataDir+"/"+newDfk)
+        err2 := os.Rename(utils.DataDir+"/"+ifk, utils.DataDir+"/"+newIfk)
+
+        if err1 != nil || err2 != nil </span><span class="cov0" title="0">{
+                utils.Errorln("Error renaming files:", err1, err2)
+                return
+        }</span>
+
+        // Create new file handles
+        <span class="cov8" title="1">prepareFileHandles(newDfk, dataFileHandles)
+        prepareFileHandles(newIfk, indexFileHandles)
+
+        // Add new ID
+        allIds.Add(newId)</span>
+}
+
+func DeleteKey(dataPointId string) <span class="cov8" title="1">{
+        utils.Log("Deleting key: %v", dataPointId)
+        renameLock.Lock()
+        dfk := dataPointId + ".aof"
+        ifk := dataPointId + ".idx"
+
+        //close file handles
+        dfh, _ := dataFileHandles.Load(dfk)
+        dfh.Close()
+        ifh, _ := indexFileHandles.Load(ifk)
+        ifh.Close()
+
+        dataFileHandles.Delete(dfk)
+        indexFileHandles.Delete(ifk)
+        allIds.Remove(dataPointId)
+
+        //delete the file
+        err := os.Remove(utils.DataDir + "/" + dfk)
+        if err != nil </span><span class="cov0" title="0">{
+                utils.Errorln(err)
+        }</span>
+        <span class="cov8" title="1">err = os.Remove(utils.DataDir + "/" + ifk)
+        if err != nil </span><span class="cov8" title="1">{
+                utils.Errorln(err)
+        }</span>
+        <span class="cov8" title="1">renameLock.Unlock()</span>
 }
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
@@ -131,6 +215,69 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="
 
         lastValue[dataPoint.ID] = dataPoint.Value
         lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
+}
+
+func PatchDataPoints(dataPoints []models.DataPoint, key string) <span class="cov8" title="1">{
+        /*
+                1. sort input data points by timestamp
+                2. get all data points from key
+                3. merge input data points with existing data points
+                4. write merged data points to file
+                5. rebuild index file
+        */
+
+        lock, _ := dataPatchLocks.LoadOrStore(key, &amp;sync.Mutex{}) //ignore the second return value because we don't care if it was loaded
+        lock.Lock()
+        defer lock.Unlock()
+
+        // sort input data points by timestamp
+        sort.Slice(dataPoints, func(i, j int) bool </span><span class="cov8" title="1">{
+                return dataPoints[i].Timestamp &lt; dataPoints[j].Timestamp
+        }</span>)
+
+        // get all data points from key
+        <span class="cov8" title="1">existingDataPoints := readFiledDataPoints(key, 0, math.MaxInt64)
+
+        // merge input data points with existing data points
+        newDataCursor := 0
+        existingDataCursor := 0
+
+        var mergedDataPoints []models.DataPoint
+
+        for newDataCursor &lt; len(dataPoints) &amp;&amp; existingDataCursor &lt; len(existingDataPoints) </span><span class="cov8" title="1">{
+                newDataPoint := dataPoints[newDataCursor]
+                existingDataPoint := existingDataPoints[existingDataCursor]
+
+                if newDataPoint.Timestamp &lt; existingDataPoint.Timestamp </span><span class="cov8" title="1">{
+                        mergedDataPoints = append(mergedDataPoints, newDataPoint)
+                        newDataCursor++
+                }</span> else<span class="cov8" title="1"> if newDataPoint.Timestamp &gt; existingDataPoint.Timestamp </span><span class="cov8" title="1">{
+                        mergedDataPoints = append(mergedDataPoints, existingDataPoint)
+                        existingDataCursor++
+                }</span> else<span class="cov8" title="1"> {
+                        // Overwrite old data with new data if timestamps are the same
+                        mergedDataPoints = append(mergedDataPoints, newDataPoint)
+                        newDataCursor++
+                        existingDataCursor++
+                }</span>
+        }
+
+        <span class="cov8" title="1">for newDataCursor &lt; len(dataPoints) </span><span class="cov8" title="1">{
+                mergedDataPoints = append(mergedDataPoints, dataPoints[newDataCursor])
+                newDataCursor++
+        }</span>
+
+        <span class="cov8" title="1">for existingDataCursor &lt; len(existingDataPoints) </span><span class="cov8" title="1">{
+                mergedDataPoints = append(mergedDataPoints, existingDataPoints[existingDataCursor])
+                existingDataCursor++
+        }</span>
+
+        // remove key
+        <span class="cov8" title="1">DeleteKey(key)
+
+        // write merged data points to file
+        storeDataPoints(key, mergedDataPoints)</span> // this will also rebuild the index file
+
 }
 
 func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
@@ -202,38 +349,68 @@ func JsonFormatDataPoints(dataPoints []models.DataPoint) string <span class="cov
 func GetAllIds() []string <span class="cov8" title="1">{
         return allIds.Items()
 }</span>
+
+func GetAllIdsWithCount() []models.KeyCount <span class="cov8" title="1">{
+        keys := allIds.Items()
+
+        var keyCount = []models.KeyCount{}
+        for _, key := range keys </span><span class="cov8" title="1">{
+                fh := prepareFileHandles(key+".aof", dataFileHandles)
+                fileStat, _ := fh.Stat()
+                size := int(fileStat.Size() / 16)
+                keyCount = append(keyCount, models.KeyCount{Key: key, Count: size})
+        }</span>
+
+        <span class="cov8" title="1">return keyCount</span>
+}
 </pre>
 		
 		<pre class="file" id="file1" style="display: none">package buffer
 
 import (
         "bufio"
-        "fmt"
+        "encoding/binary"
         "gtsdb/concurrent"
         "gtsdb/models"
         "gtsdb/utils"
         "io"
         "os"
-        "strconv"
         "strings"
         "sync/atomic"
 )
+
+func writeBinary(file *os.File, data ...interface{}) <span class="cov8" title="1">{
+        for _, d := range data </span><span class="cov8" title="1">{
+                err := binary.Write(file, binary.LittleEndian, d)
+                if err != nil </span><span class="cov0" title="0">{
+                        utils.Panic(err)
+                }</span>
+        }
+}
+
+func readBinary(reader io.Reader, data ...interface{}) error <span class="cov8" title="1">{
+        for _, d := range data </span><span class="cov8" title="1">{
+                err := binary.Read(reader, binary.LittleEndian, d)
+                if err != nil </span><span class="cov8" title="1">{
+                        return err
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
         dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
         indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
         for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
-                line := fmt.Sprintf("%010d,%.8e\n", dataPoint.Timestamp, dataPoint.Value)
-                dataFile.WriteString(line)
+                writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value)
 
                 countValue, _ := idToCountMap.Load(dataPointId)
                 count := countValue
                 count.Add(1)
 
                 if count.Load()%indexInterval == 0 </span><span class="cov8" title="1">{
-                        //end position of this file
                         offset, _ := dataFile.Seek(0, io.SeekEnd)
-                        offset -= int64(len(line))
+                        offset -= int64(binary.Size(dataPoint.Timestamp) + binary.Size(dataPoint.Value))
                         updateIndexFile(indexFile, dataPoint.Timestamp, offset)
                 }</span>
         }
@@ -271,18 +448,16 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <
         file := prepareFileHandles(id+".aof", dataFileHandles)
         reader := bufio.NewReader(file)
 
-        //seek the last x bytes using offset
-        // line width is "1731690356,3.33333330e+03" 25 + 1 (\n) = 32
-        // 26 * count
-        _, err := file.Seek(int64(-26*count), io.SeekEnd)
+        _, err := file.Seek(int64(-16*count), io.SeekEnd)
         if err != nil </span><span class="cov8" title="1">{
-                //if the file is smaller than the offset, seek to the beginning
                 file.Seek(0, io.SeekStart)
         }</span>
 
         <span class="cov8" title="1">var dataPoints []models.DataPoint
         for </span><span class="cov8" title="1">{
-                line, err := reader.ReadString('\n')
+                var timestamp int64
+                var value float64
+                err := readBinary(reader, &amp;timestamp, &amp;value)
                 if err != nil </span><span class="cov8" title="1">{
                         if err == io.EOF </span><span class="cov8" title="1">{
                                 break</span>
@@ -291,14 +466,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <
                         return nil, err</span>
                 }
 
-                <span class="cov8" title="1">parts := strings.Split(strings.TrimSpace(line), ",")
-                //utils.Debugln(parts)
-                trimmedTimestamp := strings.TrimSpace(parts[0])
-                timestamp, _ := strconv.ParseInt(trimmedTimestamp, 10, 64)
-                trimmedValue := strings.TrimSpace(parts[1])
-                value, _ := strconv.ParseFloat(trimmedValue, 64)
-
-                dataPoints = append(dataPoints, models.DataPoint{
+                <span class="cov8" title="1">dataPoints = append(dataPoints, models.DataPoint{
                         ID:        id,
                         Timestamp: timestamp,
                         Value:     value,
@@ -309,11 +477,10 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <
 }
 
 func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) <span class="cov8" title="1">{
-        line := fmt.Sprintf("%d,%d\n", timestamp, offset)
-        indexFile.WriteString(line)
+        writeBinary(indexFile, timestamp, offset)
 }</span>
 
-func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint <span class="cov8" title="1">{
+func readFiledDataPoints(id string, startTime int64, endTime int64) []models.DataPoint <span class="cov8" title="1">{
         file := prepareFileHandles(id+".aof", dataFileHandles)
         var dataPoints []models.DataPoint
         reader := bufio.NewReader(file)
@@ -332,7 +499,9 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
                 }</span>
 
                 <span class="cov8" title="1">for </span><span class="cov8" title="1">{
-                        line, err := indexReader.ReadString('\n')
+                        var timestamp int64
+                        var fileOffset int64
+                        err := readBinary(indexReader, &amp;timestamp, &amp;fileOffset)
                         if err != nil </span><span class="cov8" title="1">{
                                 if err == io.EOF </span><span class="cov8" title="1">{
                                         break</span>
@@ -340,15 +509,12 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
                                         utils.Error("Error reading index file: %v", err)
                                         return nil
                                 }</span>
-
                         }
 
-                        <span class="cov8" title="1">parts := strings.Split(strings.TrimSpace(line), ",")
-                        timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
-                        if timestamp &gt; startTime </span><span class="cov8" title="1">{
+                        <span class="cov8" title="1">if timestamp &gt; startTime </span><span class="cov8" title="1">{
                                 break</span>
                         }
-                        <span class="cov8" title="1">offset, _ = strconv.ParseInt(parts[1], 10, 64)</span>
+                        <span class="cov8" title="1">offset = fileOffset</span>
                 }
 
                 <span class="cov8" title="1">_, err = file.Seek(offset, io.SeekStart)
@@ -365,7 +531,9 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
         }
 
         <span class="cov8" title="1">for </span><span class="cov8" title="1">{
-                line, err := reader.ReadString('\n')
+                var timestamp int64
+                var value float64
+                err := readBinary(reader, &amp;timestamp, &amp;value)
                 if err != nil </span><span class="cov8" title="1">{
                         if err == io.EOF </span><span class="cov8" title="1">{
                                 break</span>
@@ -374,11 +542,7 @@ func readFiledDataPoints(id string, startTime, endTime int64) []models.DataPoint
                         return nil</span>
                 }
 
-                <span class="cov8" title="1">parts := strings.Split(strings.TrimSpace(line), ",")
-                timestamp, _ := strconv.ParseInt(parts[0], 10, 64)
-                value, _ := strconv.ParseFloat(parts[1], 64)
-
-                if timestamp &gt; endTime </span><span class="cov8" title="1">{
+                <span class="cov8" title="1">if timestamp &gt; endTime </span><span class="cov8" title="1">{
                         break</span>
                 }
 
@@ -425,7 +589,7 @@ func checkIfBufferHasEnoughDataPoints(id string, count int) bool <span class="co
 
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
         if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov8" title="1">{
-                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id]}}
+                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id], ID: id}}
         }</span>
 
         <span class="cov8" title="1">rb, ok := idToRingBufferMap.Load(id)
@@ -463,7 +627,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 
         for _, dp := range dataPoints </span><span class="cov8" title="1">{
                 if dp.Timestamp-intervalStart &gt;= int64(downsample) </span><span class="cov8" title="1">{
-                        // Reached the end of the current interval
                         if intervalCount &gt; 0 </span><span class="cov8" title="1">{
                                 var value float64
                                 switch aggregation </span>{
@@ -488,7 +651,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                                         Value:     value,
                                 })</span>
                         }
-                        // Start a new interval
                         <span class="cov8" title="1">intervalStart = dp.Timestamp
                         intervalSum = dp.Value
                         intervalCount = 1
@@ -497,7 +659,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                         intervalFirst = dp.Value
                         intervalLast = dp.Value</span>
                 } else<span class="cov8" title="1"> {
-                        // Accumulate values within the current interval
                         intervalSum += dp.Value
                         intervalCount++
                         if dp.Value &lt; intervalMin </span><span class="cov8" title="1">{
@@ -510,7 +671,6 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                 }
         }
 
-        // Process the last interval
         <span class="cov8" title="1">if intervalCount &gt; 0 </span><span class="cov8" title="1">{
                 var value float64
                 switch aggregation </span>{
@@ -617,7 +777,7 @@ func (l *LRU[K, V]) moveToFront(node *Node[K, V]) <span class="cov8" title="1">{
         <span class="cov8" title="1">if node == l.tail </span><span class="cov8" title="1">{
                 l.tail = node.prev
                 l.tail.next = nil
-        }</span> else<span class="cov8" title="1"> {
+        }</span> else<span class="cov0" title="0"> {
                 node.prev.next = node.next
                 node.next.prev = node.prev
         }</span>

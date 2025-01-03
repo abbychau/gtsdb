@@ -99,3 +99,39 @@ Content-Type: application/json
     "operation": "deletekey",
     "key": "sensor_to_delete"
 }
+
+### Multi-read data with time range and downsampling
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "multi-read",
+    "keys": ["sensor1", "sensor2", "sensor3"],
+    "read": {
+        "start_timestamp": 1717965210,
+        "end_timestamp": 1717965211,
+        "downsampling": 3
+    }
+}
+
+### Multi-read last X records
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "multi-read",
+    "keys": ["sensor1", "sensor2", "sensor3"],
+    "read": {
+        "lastx": 1
+    }
+}
+
+### Patch data points for a key
+POST {{hostname}}/
+Content-Type: application/json
+
+{
+    "operation": "data-patch",
+    "key": "sensor1",
+    "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"
+}

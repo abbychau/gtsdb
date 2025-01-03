@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"fmt"
 	"gtsdb/buffer"
 	"gtsdb/models"
 	"gtsdb/utils"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,23 +24,27 @@ type ReadRequest struct {
 }
 
 type Operation struct {
-	Operation string        `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey"
+	Operation string        `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "multi-read", "data-patch"
 	Write     *WriteRequest `json:"write,omitempty"`
 	Read      *ReadRequest  `json:"read,omitempty"`
 	Key       string        `json:"key,omitempty"`
 	ToKey     string        `json:"tokey,omitempty"`
+	Keys      []string      `json:"keys,omitempty"`
+	Data      string        `json:"data,omitempty"` // CSV data for patch operation
 }
 
 type Response struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
+	Success         bool                          `json:"success"`
+	Message         string                        `json:"message,omitempty"`
+	Data            interface{}                   `json:"data,omitempty"`
+	ReadQueryParams ReadRequest                   `json:"read_query_params,omitempty"`
+	MultiData       map[string][]models.DataPoint `json:"multi_data,omitempty"`
 }
 
 func HandleOperation(op Operation) Response {
 	loweredOperation := strings.ToLower(op.Operation)
 
-	if loweredOperation != "serverinfo" && loweredOperation != "ids" && loweredOperation != "flush" && op.Key == "" {
+	if loweredOperation != "serverinfo" && loweredOperation != "ids" && loweredOperation != "flush" && loweredOperation != "idswithcount" && loweredOperation != "multi-read" && op.Key == "" {
 		return Response{Success: false, Message: "Key required"}
 	}
 	switch loweredOperation {
@@ -82,8 +88,17 @@ func HandleOperation(op Operation) Response {
 		if op.Read.Aggregation == "" {
 			op.Read.Aggregation = "avg"
 		}
+		// start time and end time are set either both or none
+		if (op.Read.StartTime == 0 && op.Read.EndTime != 0) || (op.Read.StartTime != 0 && op.Read.EndTime == 0) {
+			return Response{Success: false, Message: "Both start and end time required or none"}
+		}
+		// start time must be less than end time
+		if op.Read.StartTime > 0 && op.Read.EndTime > 0 && op.Read.StartTime > op.Read.EndTime {
+			return Response{Success: false, Message: "Start time must be less than end time"}
+		}
 		utils.Log("Read request: %v", op.Read)
 		var response []models.DataPoint
+		var readQueryParams ReadRequest
 		if op.Read.LastX > 0 || (op.Read.StartTime == 0 && op.Read.EndTime == 0) {
 			last := op.Read.LastX
 			if last == 0 {
@@ -92,11 +107,68 @@ func HandleOperation(op Operation) Response {
 			if last < 0 {
 				last = last * -1
 			}
+			readQueryParams = ReadRequest{
+				LastX:       last,
+				Aggregation: op.Read.Aggregation,
+			}
+
 			response = buffer.ReadLastDataPoints(op.Key, last)
 		} else {
+			readQueryParams = ReadRequest{
+				StartTime:   op.Read.StartTime,
+				EndTime:     op.Read.EndTime,
+				Downsample:  op.Read.Downsample,
+				Aggregation: op.Read.Aggregation,
+			}
 			response = buffer.ReadDataPoints(op.Key, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
 		}
-		return Response{Success: true, Data: response}
+		return Response{
+			Success:         true,
+			Data:            response,
+			ReadQueryParams: readQueryParams,
+		}
+	case "multi-read":
+		if op.Read == nil {
+			return Response{Success: false, Message: "Read parameters required"}
+		}
+		if len(op.Keys) == 0 {
+			return Response{Success: false, Message: "Keys array required"}
+		}
+		if op.Read.Aggregation == "" {
+			op.Read.Aggregation = "avg"
+		}
+		// start time and end time are set either both or none
+		if (op.Read.StartTime == 0 && op.Read.EndTime != 0) || (op.Read.StartTime != 0 && op.Read.EndTime == 0) {
+			return Response{Success: false, Message: "Both start and end time required or none"}
+		}
+		// start time must be less than end time
+		if op.Read.StartTime > 0 && op.Read.EndTime > 0 && op.Read.StartTime > op.Read.EndTime {
+			return Response{Success: false, Message: "Start time must be less than end time"}
+		}
+
+		result := make(map[string][]models.DataPoint)
+		for _, key := range op.Keys {
+			var response []models.DataPoint
+			if op.Read.LastX > 0 || (op.Read.StartTime == 0 && op.Read.EndTime == 0) {
+				last := op.Read.LastX
+				if last == 0 {
+					last = 1
+				}
+				if last < 0 {
+					last = last * -1
+				}
+				response = buffer.ReadLastDataPoints(key, last)
+			} else {
+				response = buffer.ReadDataPoints(key, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
+			}
+			result[key] = response
+		}
+
+		return Response{
+			Success:         true,
+			MultiData:       result,
+			ReadQueryParams: *op.Read,
+		}
 	case "ids":
 		return Response{Success: true, Data: buffer.GetAllIds()}
 	case "idswithcount":
@@ -104,6 +176,45 @@ func HandleOperation(op Operation) Response {
 	case "flush":
 		buffer.FlushRemainingDataPoints()
 		return Response{Success: true, Message: "Data points flushed"}
+
+	case "data-patch":
+		if op.Data == "" {
+			return Response{Success: false, Message: "CSV data required"}
+		}
+
+		var points []models.DataPoint
+		rows := strings.Split(op.Data, "\n")
+		for _, row := range rows {
+			row = strings.TrimSpace(row)
+			if row == "" {
+				continue
+			}
+			parts := strings.Split(row, ",")
+			if len(parts) != 2 {
+				continue
+			}
+			timestamp, err := strconv.ParseInt(parts[0], 10, 64)
+			if err != nil {
+				continue
+			}
+			value, err := strconv.ParseFloat(parts[1], 64)
+			if err != nil {
+				continue
+			}
+			points = append(points, models.DataPoint{
+				ID:        op.Key,
+				Timestamp: timestamp,
+				Value:     value,
+			})
+		}
+
+		if len(points) == 0 {
+			return Response{Success: false, Message: "No valid data points found in CSV"}
+		}
+
+		buffer.PatchDataPoints(points, op.Key)
+
+		return Response{Success: true, Message: fmt.Sprintf("Patched %d data points", len(points))}
 
 	default:
 		return Response{Success: false, Message: "Invalid operation"}

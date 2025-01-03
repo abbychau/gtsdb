@@ -5,6 +5,7 @@ import (
 	"gtsdb/synchronous"
 	"gtsdb/utils"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -338,4 +339,172 @@ func TestPrepareFileHandlesPanic(t *testing.T) {
 	}()
 
 	prepareFileHandles("test.aof", dataFileHandles)
+}
+
+func TestPatchDataPointsEmptyKey(t *testing.T) {
+	id := "TestPatchDataPointsEmptyKey"
+	cleanTestFiles(id)
+
+	// Initial data
+	initialPoints := []models.DataPoint{
+		{ID: id, Timestamp: 1000, Value: 1.0},
+		{ID: id, Timestamp: 2000, Value: 2.0},
+		{ID: id, Timestamp: 4000, Value: 4.0},
+	}
+	storeDataPoints(id, initialPoints)
+
+	// Patch data
+	patchPoints := []models.DataPoint{
+		{ID: id, Timestamp: 3000, Value: 3.0},
+		{ID: id, Timestamp: 5000, Value: 5.0},
+	}
+	PatchDataPoints(patchPoints, id)
+
+	// Verify
+	result := readFiledDataPoints(id, 0, 6000)
+	expected := 5
+	if len(result) != expected {
+		t.Errorf("Expected %d points, got %d", expected, len(result))
+	}
+
+	// Verify order and values
+	expectedPoints := []struct {
+		ts    int64
+		value float64
+	}{
+		{1000, 1.0},
+		{2000, 2.0},
+		{3000, 3.0},
+		{4000, 4.0},
+		{5000, 5.0},
+	}
+
+	for i, exp := range expectedPoints {
+		if result[i].Timestamp != exp.ts || result[i].Value != exp.value {
+			t.Errorf("Point %d: expected {ts: %d, val: %f}, got {ts: %d, val: %f}",
+				i, exp.ts, exp.value, result[i].Timestamp, result[i].Value)
+		}
+	}
+
+	cleanTestFiles(id)
+}
+
+func TestPatchDataPointsExistingTimestamps(t *testing.T) {
+	id := "TestPatchDataPointsExistingTimestamps"
+	cleanTestFiles(id)
+
+	// Initial data
+	initialPoints := []models.DataPoint{
+		{ID: id, Timestamp: 1000, Value: 1.0},
+		{ID: id, Timestamp: 2000, Value: 2.0},
+		{ID: id, Timestamp: 3000, Value: 3.0},
+	}
+	storeDataPoints(id, initialPoints)
+
+	// Patch same timestamps with different values
+	patchPoints := []models.DataPoint{
+		{ID: id, Timestamp: 1000, Value: 10.0},
+		{ID: id, Timestamp: 2000, Value: 20.0},
+	}
+	PatchDataPoints(patchPoints, id)
+
+	// Verify
+	result := readFiledDataPoints(id, 0, 4000)
+	if len(result) != 3 {
+		t.Errorf("Expected 3 points, got %d", len(result))
+	}
+
+	// Check updated values
+	expectedPoints := []struct {
+		ts    int64
+		value float64
+	}{
+		{1000, 10.0}, // Original values should be preserved
+		{2000, 20.0},
+		{3000, 3.0},
+	}
+
+	for i, exp := range expectedPoints {
+		if result[i].Timestamp != exp.ts || result[i].Value != exp.value {
+			t.Errorf("Point %d: expected {ts: %d, val: %f}, got {ts: %d, val: %f}",
+				i, exp.ts, exp.value, result[i].Timestamp, result[i].Value)
+		}
+	}
+
+	cleanTestFiles(id)
+}
+
+func TestPatchDataPointsEmptyDataset(t *testing.T) {
+	id := "TestPatchDataPointsEmptyDataset"
+	cleanTestFiles(id)
+
+	// Patch data into empty dataset
+	patchPoints := []models.DataPoint{
+		{ID: id, Timestamp: 1000, Value: 1.0},
+		{ID: id, Timestamp: 2000, Value: 2.0},
+	}
+	PatchDataPoints(patchPoints, id)
+
+	// Verify
+	result := readFiledDataPoints(id, 0, 3000)
+	if len(result) != 2 {
+		t.Errorf("Expected 2 points, got %d", len(result))
+	}
+
+	expectedPoints := []struct {
+		ts    int64
+		value float64
+	}{
+		{1000, 1.0},
+		{2000, 2.0},
+	}
+
+	for i, exp := range expectedPoints {
+		if result[i].Timestamp != exp.ts || result[i].Value != exp.value {
+			t.Errorf("Point %d: expected {ts: %d, val: %f}, got {ts: %d, val: %f}",
+				i, exp.ts, exp.value, result[i].Timestamp, result[i].Value)
+		}
+	}
+
+	cleanTestFiles(id)
+}
+
+func TestPatchDataPointsConcurrent(t *testing.T) {
+
+	id := "TestPatchDataPointsConcurrent"
+	cleanTestFiles(id)
+
+	// Initial data
+	initialPoints := []models.DataPoint{
+		{ID: id, Timestamp: 1000, Value: 1.0},
+		{ID: id, Timestamp: 2000, Value: 2.0},
+	}
+	storeDataPoints(id, initialPoints)
+
+	// Run concurrent patches
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			patchPoints := []models.DataPoint{
+				{ID: id, Timestamp: int64(3000 + i*1000), Value: float64(3 + i)},
+			}
+			PatchDataPoints(patchPoints, id)
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify final state
+	result := readFiledDataPoints(id, 0, 6000)
+	if len(result) != 5 {
+		t.Errorf("Expected 5 points, got %d", len(result))
+	}
+
+	// Verify all timestamps are unique and sorted
+	for i := 1; i < len(result); i++ {
+		if result[i].Timestamp <= result[i-1].Timestamp {
+			t.Errorf("Points not properly ordered at index %d", i)
+		}
+	}
 }

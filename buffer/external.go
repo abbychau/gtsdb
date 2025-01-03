@@ -6,8 +6,11 @@ import (
 	"gtsdb/models"
 	"gtsdb/synchronous"
 	"gtsdb/utils"
+	"math"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 )
 
 func InitIDSet() {
@@ -41,28 +44,43 @@ func RenameKey(dataPointId, newId string) {
 	}
 	utils.Log("Renaming key: %v to %v", dataPointId, newId)
 	renameLock.Lock()
+	defer renameLock.Unlock()
 
 	dfk := dataPointId + ".aof"
 	ifk := dataPointId + ".idx"
-
-	dataFileHandles.Delete(dfk)
-	indexFileHandles.Delete(ifk)
-	allIds.Remove(dataPointId)
-
 	newDfk := newId + ".aof"
 	newIfk := newId + ".idx"
 
-	//rename the file
-	os.Rename(utils.DataDir+"/"+dfk, utils.DataDir+"/"+newDfk)
-	os.Rename(utils.DataDir+"/"+ifk, utils.DataDir+"/"+newIfk)
+	// Close and remove old file handles
+	if dfh, ok := dataFileHandles.Load(dfk); ok {
+		dfh.Close()
+		dataFileHandles.Delete(dfk)
+	}
+	if ifh, ok := indexFileHandles.Load(ifk); ok {
+		ifh.Close()
+		indexFileHandles.Delete(ifk)
+	}
 
+	// Remove from allIds before renaming
+	allIds.Remove(dataPointId)
+
+	// Rename the files
+	err1 := os.Rename(utils.DataDir+"/"+dfk, utils.DataDir+"/"+newDfk)
+	err2 := os.Rename(utils.DataDir+"/"+ifk, utils.DataDir+"/"+newIfk)
+
+	if err1 != nil || err2 != nil {
+		utils.Errorln("Error renaming files:", err1, err2)
+		return
+	}
+
+	// Create new file handles
 	prepareFileHandles(newDfk, dataFileHandles)
 	prepareFileHandles(newIfk, indexFileHandles)
 
+	// Add new ID
 	allIds.Add(newId)
-
-	renameLock.Unlock()
 }
+
 func DeleteKey(dataPointId string) {
 	utils.Log("Deleting key: %v", dataPointId)
 	renameLock.Lock()
@@ -110,6 +128,69 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 
 	lastValue[dataPoint.ID] = dataPoint.Value
 	lastTimestamp[dataPoint.ID] = dataPoint.Timestamp
+}
+
+func PatchDataPoints(dataPoints []models.DataPoint, key string) {
+	/*
+		1. sort input data points by timestamp
+		2. get all data points from key
+		3. merge input data points with existing data points
+		4. write merged data points to file
+		5. rebuild index file
+	*/
+
+	lock, _ := dataPatchLocks.LoadOrStore(key, &sync.Mutex{}) //ignore the second return value because we don't care if it was loaded
+	lock.Lock()
+	defer lock.Unlock()
+
+	// sort input data points by timestamp
+	sort.Slice(dataPoints, func(i, j int) bool {
+		return dataPoints[i].Timestamp < dataPoints[j].Timestamp
+	})
+
+	// get all data points from key
+	existingDataPoints := readFiledDataPoints(key, 0, math.MaxInt64)
+
+	// merge input data points with existing data points
+	newDataCursor := 0
+	existingDataCursor := 0
+
+	var mergedDataPoints []models.DataPoint
+
+	for newDataCursor < len(dataPoints) && existingDataCursor < len(existingDataPoints) {
+		newDataPoint := dataPoints[newDataCursor]
+		existingDataPoint := existingDataPoints[existingDataCursor]
+
+		if newDataPoint.Timestamp < existingDataPoint.Timestamp {
+			mergedDataPoints = append(mergedDataPoints, newDataPoint)
+			newDataCursor++
+		} else if newDataPoint.Timestamp > existingDataPoint.Timestamp {
+			mergedDataPoints = append(mergedDataPoints, existingDataPoint)
+			existingDataCursor++
+		} else {
+			// Overwrite old data with new data if timestamps are the same
+			mergedDataPoints = append(mergedDataPoints, newDataPoint)
+			newDataCursor++
+			existingDataCursor++
+		}
+	}
+
+	for newDataCursor < len(dataPoints) {
+		mergedDataPoints = append(mergedDataPoints, dataPoints[newDataCursor])
+		newDataCursor++
+	}
+
+	for existingDataCursor < len(existingDataPoints) {
+		mergedDataPoints = append(mergedDataPoints, existingDataPoints[existingDataCursor])
+		existingDataCursor++
+	}
+
+	// remove key
+	DeleteKey(key)
+
+	// write merged data points to file
+	storeDataPoints(key, mergedDataPoints) // this will also rebuild the index file
+
 }
 
 func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
@@ -182,15 +263,16 @@ func GetAllIds() []string {
 	return allIds.Items()
 }
 
-func GetAllIdsWithCount() map[string]int {
+func GetAllIdsWithCount() []models.KeyCount {
 	keys := allIds.Items()
 
-	idCount := make(map[string]int)
+	var keyCount = []models.KeyCount{}
 	for _, key := range keys {
 		fh := prepareFileHandles(key+".aof", dataFileHandles)
 		fileStat, _ := fh.Stat()
-		idCount[key] = int(fileStat.Size() / 16)
+		size := int(fileStat.Size() / 16)
+		keyCount = append(keyCount, models.KeyCount{Key: key, Count: size})
 	}
 
-	return idCount
+	return keyCount
 }
