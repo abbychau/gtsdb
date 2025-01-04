@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"gtsdb/buffer"
 	"gtsdb/fanout"
 	"gtsdb/handlers"
@@ -15,7 +16,17 @@ import (
 )
 
 func main() {
-	run("gtsdb.ini")
+	// Set default config file
+	defaultConfig := "gtsdb.ini"
+
+	// Parse command line arguments
+	flag.Parse()
+	configFile := defaultConfig
+	if args := flag.Args(); len(args) > 0 {
+		configFile = args[0]
+	}
+
+	run(configFile)
 }
 
 func run(configFile string) {
@@ -85,7 +96,7 @@ func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 func loadConfig(iniFile string) {
 	utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
 	utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
-	utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
+	utils.Log("🏃現在在用 %v 唷", iniFile)
 	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
 	cfg, err := ini.Load(iniFile)

@@ -111,6 +111,7 @@ func DeleteKey(dataPointId string) {
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
 	allIds.Add(dataPoint.ID)
+
 	if cacheSize == 0 {
 		storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
 		return
@@ -126,8 +127,8 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 
 	storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
 
-	lastValue[dataPoint.ID] = dataPoint.Value
-	lastTimestamp[dataPoint.ID] = dataPoint.Timestamp
+	lastValue.Store(dataPoint.ID, dataPoint.Value)
+	lastTimestamp.Store(dataPoint.ID, dataPoint.Timestamp)
 }
 
 func PatchDataPoints(dataPoints []models.DataPoint, key string) {

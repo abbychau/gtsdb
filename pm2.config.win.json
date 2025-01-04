@@ -2,7 +2,7 @@
     "apps" : [
         {
             "name"       : "gtsdb",
-            "script"     : "./gtsdb.exe",
+            "script"     : "./gtsdb.exe mygtsdb.ini",
             "exec_interpreter": "none",
             "exec_mode"  : "fork_mode",
             "watch"      : true

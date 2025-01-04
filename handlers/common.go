@@ -41,12 +41,22 @@ type Response struct {
 	MultiData       map[string][]models.DataPoint `json:"multi_data,omitempty"`
 }
 
+// actions that no need key
+var noKeyActions = map[string]bool{
+	"serverinfo":   true,
+	"ids":          true,
+	"flush":        true,
+	"idswithcount": true,
+	"multi-read":   true,
+}
+
 func HandleOperation(op Operation) Response {
 	loweredOperation := strings.ToLower(op.Operation)
 
-	if loweredOperation != "serverinfo" && loweredOperation != "ids" && loweredOperation != "flush" && loweredOperation != "idswithcount" && loweredOperation != "multi-read" && op.Key == "" {
+	if !noKeyActions[loweredOperation] && op.Key == "" {
 		return Response{Success: false, Message: "Key required"}
 	}
+
 	switch loweredOperation {
 	case "serverinfo":
 		var data = map[string]interface{}{}
@@ -78,6 +88,7 @@ func HandleOperation(op Operation) Response {
 			Timestamp: op.Write.Timestamp,
 			Value:     op.Write.Value,
 		}
+		utils.Log("Write request: %v", dataPoint)
 		buffer.StoreDataPointBuffer(dataPoint)
 		return Response{Success: true, Message: "Data point stored"}
 

@@ -221,8 +221,12 @@ func checkIfBufferHasEnoughDataPoints(id string, count int) bool {
 }
 
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
-	if count == 1 && lastTimestamp[id] != 0 {
-		return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id], ID: id}}
+	if count == 1 {
+		timestampValue, ok := lastTimestamp.Load(id)
+		if ok && timestampValue != 0 {
+			value, _ := lastValue.Load(id)
+			return []models.DataPoint{{Timestamp: timestampValue, Value: value, ID: id}}
+		}
 	}
 
 	rb, ok := idToRingBufferMap.Load(id)
