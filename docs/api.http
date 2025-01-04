@@ -6,9 +6,9 @@ Content-Type: application/json
 
 {
     "operation": "write",
+    "key": "a_sensor1",
     "Write": {
-        "id": "a_sensor1",
-        "Value": 32242424243333333333.3333
+        "Value": 322424242433333.3333
     }
 }
 
@@ -18,8 +18,8 @@ Content-Type: application/json
 
 {
     "operation": "read",
+    "key": "a_sensor1",
     "Read": {
-        "id": "a_sensor1",
         "start_timestamp": 1717965210,
         "end_timestamp": 1717965211,
         "downsampling": 3
@@ -32,8 +32,8 @@ Content-Type: application/json
 
 {
     "operation": "read",
+    "key": "a_sensor1",
     "Read": {
-        "id": "a_sensor1",
         "lastx": 1
     }
 }
@@ -61,10 +61,10 @@ POST {{hostname}}/
 Content-Type: application/json
 
 {
-    "operation": "ids"
+    "operation": "keys"
 }
 
-### Flush all data points
+### Flush all data
 POST {{hostname}}/
 Content-Type: application/json
 
@@ -77,7 +77,7 @@ POST {{hostname}}/
 Content-Type: application/json
 
 {
-    "operation": "initkey",
+    "operation": "init",
     "key": "new_sensor"
 }
 
@@ -96,7 +96,7 @@ POST {{hostname}}/
 Content-Type: application/json
 
 {
-    "operation": "deletekey",
+    "operation": "delete",
     "key": "sensor_to_delete"
 }
 
@@ -107,7 +107,7 @@ Content-Type: application/json
 {
     "operation": "multi-read",
     "keys": ["sensor1", "sensor2", "sensor3"],
-    "read": {
+    "Read": {
         "start_timestamp": 1717965210,
         "end_timestamp": 1717965211,
         "downsampling": 3
@@ -121,7 +121,7 @@ Content-Type: application/json
 {
     "operation": "multi-read",
     "keys": ["sensor1", "sensor2", "sensor3"],
-    "read": {
+    "Read": {
         "lastx": 1
     }
 }
