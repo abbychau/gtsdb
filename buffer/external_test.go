@@ -26,7 +26,7 @@ func TestStoreAndReadDataPoints(t *testing.T) {
 
 	// Test data
 	dataPoint := models.DataPoint{
-		ID:        "TestStoreAndReadDataPoints",
+		Key:       "TestStoreAndReadDataPoints",
 		Timestamp: time.Now().Unix(),
 		Value:     42.5,
 	}
@@ -46,8 +46,8 @@ func TestStoreAndReadDataPoints(t *testing.T) {
 
 func TestFormatDataPoints(t *testing.T) {
 	points := []models.DataPoint{
-		{ID: "test1", Timestamp: 1000, Value: 42.5},
-		{ID: "test1", Timestamp: 2000, Value: 43.5},
+		{Key: "test1", Timestamp: 1000, Value: 42.5},
+		{Key: "test1", Timestamp: 2000, Value: 43.5},
 	}
 
 	formatted := FormatDataPoints(points)
@@ -59,11 +59,11 @@ func TestFormatDataPoints(t *testing.T) {
 
 func TestJsonFormatDataPoints(t *testing.T) {
 	points := []models.DataPoint{
-		{ID: "test1", Timestamp: 1000, Value: 42.5},
+		{Key: "test1", Timestamp: 1000, Value: 42.5},
 	}
 
 	formatted := JsonFormatDataPoints(points)
-	expected := `[{"id":"test1","timestamp":1000,"value":42.5}]`
+	expected := `[{"key":"test1","timestamp":1000,"value":42.5}]`
 	if formatted != expected {
 		t.Errorf("Expected %s, got %s", formatted, formatted)
 	}
@@ -76,10 +76,10 @@ func TestReadDataPointsWithDownsampling(t *testing.T) {
 	// Store test data points
 	now := time.Now().Unix()
 	points := []models.DataPoint{
-		{ID: "test2", Timestamp: now, Value: 1.0},
-		{ID: "test2", Timestamp: now + 1, Value: 2.0},
-		{ID: "test2", Timestamp: now + 2, Value: 3.0},
-		{ID: "test2", Timestamp: now + 3, Value: 4.0},
+		{Key: "test2", Timestamp: now, Value: 1.0},
+		{Key: "test2", Timestamp: now + 1, Value: 2.0},
+		{Key: "test2", Timestamp: now + 2, Value: 3.0},
+		{Key: "test2", Timestamp: now + 3, Value: 4.0},
 	}
 
 	for _, p := range points {
@@ -108,7 +108,7 @@ func TestFlushRemainingDataPoints(t *testing.T) {
 
 	// Store some data
 	dataPoint := models.DataPoint{
-		ID:        "test3",
+		Key:       "test3",
 		Timestamp: time.Now().Unix(),
 		Value:     42.5,
 	}
@@ -133,7 +133,7 @@ func TestReadLastDataPoints(t *testing.T) {
 	points := make([]models.DataPoint, 6000)
 	for i := 0; i < 6000; i++ {
 		points[i] = models.DataPoint{
-			ID:        "TestReadLast",
+			Key:       "TestReadLast",
 			Timestamp: now + int64(i),
 			Value:     float64(i),
 		}
@@ -213,7 +213,7 @@ func TestReadDataPointsEmptyResult(t *testing.T) {
 
 	// Test reading with invalid time range
 	dataPoint := models.DataPoint{
-		ID:        "test_empty",
+		Key:       "test_empty",
 		Timestamp: 1000,
 		Value:     42.5,
 	}
@@ -234,7 +234,7 @@ func TestStoreDataPointBufferWithZeroCache(t *testing.T) {
 
 	// Test data
 	dataPoint := models.DataPoint{
-		ID:        "TestZeroCache",
+		Key:       "TestZeroCache",
 		Timestamp: time.Now().Unix(),
 		Value:     42.5,
 	}
@@ -297,7 +297,7 @@ func TestRenameKey(t *testing.T) {
 
 	// Store some data to create the files
 	dataPoint := models.DataPoint{
-		ID:        oldID,
+		Key:       oldID,
 		Timestamp: time.Now().Unix(),
 		Value:     42.5,
 	}
@@ -362,7 +362,7 @@ func TestGetAllIdsWithCount(t *testing.T) {
 	for _, td := range testData {
 		for i := 0; i < td.points; i++ {
 			dataPoint := models.DataPoint{
-				ID:        td.id,
+				Key:       td.id,
 				Timestamp: time.Now().Unix() + int64(i),
 				Value:     float64(i),
 			}

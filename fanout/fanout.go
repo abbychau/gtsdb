@@ -1,8 +1,9 @@
 package fanout
 
 import (
+	"gtsdb/concurrent"
 	models "gtsdb/models"
-	"sync"
+	"gtsdb/utils"
 )
 
 type Consumer struct {
@@ -11,15 +12,13 @@ type Consumer struct {
 }
 
 type Fanout struct {
-	consumers []*Consumer
+	consumers concurrent.Set[*Consumer]
 	messageCh chan models.DataPoint
-	mu        sync.RWMutex
-	wg        sync.WaitGroup
 }
 
 func NewFanout() *Fanout {
 	fanoutManager := &Fanout{
-		consumers: make([]*Consumer, 0),
+		consumers: *concurrent.NewSet[*Consumer](),
 		messageCh: make(chan models.DataPoint),
 	}
 	go fanoutManager.producer()
@@ -27,29 +26,28 @@ func NewFanout() *Fanout {
 }
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	consumer := &Consumer{ID: id, Callback: callback}
-	f.consumers = append(f.consumers, consumer)
-	f.wg.Add(1)
+	f.consumers.Add(consumer)
 }
 
 func (f *Fanout) GetConsumers() []*Consumer {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.consumers
+	return f.consumers.Items()
+}
+
+func (f *Fanout) GetConsumer(id int) *Consumer {
+	for _, c := range f.GetConsumers() {
+		if c.ID == id {
+			return c
+		}
+	}
+	return nil
 }
 
 func (f *Fanout) RemoveConsumer(id int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for i, c := range f.consumers {
-		if c.ID == id {
-			f.consumers = append(f.consumers[:i], f.consumers[i+1:]...)
-			f.wg.Done()
-			break
-		}
-	}
+
+	f.consumers.Remove(f.GetConsumer(id))
+
+	utils.Log("Removed consumer %d", id)
 }
 
 func (f *Fanout) Publish(msg models.DataPoint) {
@@ -58,10 +56,9 @@ func (f *Fanout) Publish(msg models.DataPoint) {
 
 func (f *Fanout) producer() {
 	for msg := range f.messageCh {
-		f.mu.RLock()
-		for _, c := range f.consumers {
+
+		for _, c := range f.GetConsumers() {
 			go c.Callback(msg)
 		}
-		f.mu.RUnlock()
 	}
 }

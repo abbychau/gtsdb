@@ -37,7 +37,7 @@ type Response struct {
 	Success         bool                          `json:"success"`
 	Message         string                        `json:"message,omitempty"`
 	Data            interface{}                   `json:"data,omitempty"`
-	ReadQueryParams ReadRequest                   `json:"read_query_params,omitempty"`
+	ReadQueryParams *ReadRequest                  `json:"read_query_params,omitempty"`
 	MultiData       map[string][]models.DataPoint `json:"multi_data,omitempty"`
 }
 
@@ -84,11 +84,10 @@ func HandleOperation(op Operation) Response {
 		}
 
 		dataPoint := models.DataPoint{
-			ID:        op.Key,
+			Key:       op.Key,
 			Timestamp: op.Write.Timestamp,
 			Value:     op.Write.Value,
 		}
-		utils.Log("Write request: %v", dataPoint)
 		buffer.StoreDataPointBuffer(dataPoint)
 		return Response{Success: true, Message: "Data point stored"}
 
@@ -136,7 +135,7 @@ func HandleOperation(op Operation) Response {
 		return Response{
 			Success:         true,
 			Data:            response,
-			ReadQueryParams: readQueryParams,
+			ReadQueryParams: &readQueryParams,
 		}
 	case "multi-read":
 		if op.Read == nil {
@@ -178,7 +177,7 @@ func HandleOperation(op Operation) Response {
 		return Response{
 			Success:         true,
 			MultiData:       result,
-			ReadQueryParams: *op.Read,
+			ReadQueryParams: op.Read,
 		}
 	case "ids":
 		return Response{Success: true, Data: buffer.GetAllIds()}
@@ -213,7 +212,7 @@ func HandleOperation(op Operation) Response {
 				continue
 			}
 			points = append(points, models.DataPoint{
-				ID:        op.Key,
+				Key:       op.Key,
 				Timestamp: timestamp,
 				Value:     value,
 			})

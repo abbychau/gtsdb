@@ -1,7 +1,7 @@
 package models
 
 type DataPoint struct {
-	ID        string  `json:"id"`
+	Key       string  `json:"key"`
 	Timestamp int64   `json:"timestamp"`
 	Value     float64 `json:"value"`
 }

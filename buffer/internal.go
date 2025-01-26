@@ -100,7 +100,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 		}
 
 		dataPoints = append(dataPoints, models.DataPoint{
-			ID:        id,
+			Key:       id,
 			Timestamp: timestamp,
 			Value:     value,
 		})
@@ -181,7 +181,7 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 
 		if timestamp >= startTime && timestamp <= endTime {
 			dataPoints = append(dataPoints, models.DataPoint{
-				ID:        id,
+				Key:       id,
 				Timestamp: timestamp,
 				Value:     value,
 			})
@@ -204,7 +204,7 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 	var result []models.DataPoint
 	for i := 0; i < rb.Size(); i++ {
 		dataPoint := rb.Get(i)
-		dataPoint.ID = id
+		dataPoint.Key = id
 		if dataPoint.Timestamp >= startTime && dataPoint.Timestamp <= endTime {
 			result = append(result, dataPoint)
 		}
@@ -225,7 +225,7 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 		timestampValue, ok := lastTimestamp.Load(id)
 		if ok && timestampValue != 0 {
 			value, _ := lastValue.Load(id)
-			return []models.DataPoint{{Timestamp: timestampValue, Value: value, ID: id}}
+			return []models.DataPoint{{Timestamp: timestampValue, Value: value, Key: id}}
 		}
 	}
 
@@ -283,7 +283,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 					value = intervalSum / float64(intervalCount)
 				}
 				downsampled = append(downsampled, models.DataPoint{
-					ID:        dp.ID,
+					Key:       dp.Key,
 					Timestamp: intervalStart,
 					Value:     value,
 				})
@@ -327,7 +327,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 			value = intervalSum / float64(intervalCount)
 		}
 		downsampled = append(downsampled, models.DataPoint{
-			ID:        dataPoints[len(dataPoints)-1].ID,
+			Key:       dataPoints[len(dataPoints)-1].Key,
 			Timestamp: intervalStart,
 			Value:     value,
 		})

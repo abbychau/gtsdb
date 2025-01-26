@@ -36,7 +36,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			if len(subscribingDevices) == 1 {
 				utils.Log("Adding consumer %d %v", id, subscribingDevices)
 				fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
-					if slices.Contains(subscribingDevices, msg.ID) {
+					if slices.Contains(subscribingDevices, msg.Key) {
 						json.NewEncoder(conn).Encode(Response{Success: true, Data: msg})
 					}
 				})
@@ -65,6 +65,15 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		}
 
 		response := HandleOperation(op)
+
+		// if operation is write, broadcast to all consumers
+		if op.Operation == "write" && response.Success {
+			fanoutManager.Publish(models.DataPoint{
+				Key:   op.Key,
+				Value: op.Write.Value,
+			})
+		}
+
 		json.NewEncoder(conn).Encode(response)
 	}
 }

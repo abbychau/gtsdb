@@ -38,7 +38,7 @@ func BenchmarkMain(b *testing.B) {
 			// 		"Value": 32242424243333333333.3333
 			// 	}
 			// }
-			strWrite := "{\"operation\":\"write\",\"Write\":{\"ID\":\"%s\",\"Timestamp\":%d,\"Value\":%f}}\n"
+			strWrite := "{\"operation\":\"write\",\"Key\":\"%s\",\"Write\":{\"Timestamp\":%d,\"Value\":%f}}\n"
 			fmt.Fprintf(conn, strWrite, name, timestamp, value1) // write
 			response, _ := bufio.NewReader(conn).ReadString('\n')
 			if response != "{\"success\":true,\"message\":\"Data point stored\"}\n" {
@@ -50,17 +50,7 @@ func BenchmarkMain(b *testing.B) {
 			// random 1/2 chance to read from the last
 			dice := rand.Intn(2)
 
-			/*
-			   {
-			       "operation":"read",
-			       "Read": {
-			           "ID" : "a_sensor1",
-			           "startTime" : 0,
-			           "endTime" : 0
-			       }
-			   }
-			*/
-			strRead := "{\"operation\":\"read\",\"Read\":{\"ID\":\"%s\",\"startTime\":%d,\"endTime\":%d,\"aggregation\":%d}}\n"
+			strRead := "{\"operation\":\"read\",\"Read\":{\"Key\":\"%s\",\"startTime\":%d,\"endTime\":%d,\"aggregation\":%d}}\n"
 
 			if dice == 0 {
 				offset := rand.Int63n(100)
@@ -76,5 +66,26 @@ func BenchmarkMain(b *testing.B) {
 			}
 		}
 	}
+
+}
+
+// benchmark by simulating pub-sub queue usage
+// go test -run=nonthingplease -bench BenchmarkMainPubSub -benchtime 10s
+
+func BenchmarkMainPubSub(b *testing.B) {
+	const numSubscribers = 10
+	subscribers := make([]net.Conn, numSubscribers)
+	publisher, err := net.Dial("tcp", ":5555")
+
+	if err != nil {
+		b.Fatal("Error connecting to server:", err)
+	}
+
+	defer publisher.Close()
+	defer func() {
+		for _, conn := range subscribers {
+			conn.Close()
+		}
+	}()
 
 }

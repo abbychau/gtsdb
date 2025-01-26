@@ -110,25 +110,25 @@ func DeleteKey(dataPointId string) {
 }
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
-	allIds.Add(dataPoint.ID)
+	allIds.Add(dataPoint.Key)
 
 	if cacheSize == 0 {
-		storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+		storeDataPoints(dataPoint.Key, []models.DataPoint{dataPoint})
 		return
 	}
 
-	rb, ok := idToRingBufferMap.Load(dataPoint.ID)
+	rb, ok := idToRingBufferMap.Load(dataPoint.Key)
 	if !ok {
 		newRb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
-		idToRingBufferMap.Store(dataPoint.ID, newRb)
+		idToRingBufferMap.Store(dataPoint.Key, newRb)
 		rb = newRb
 	}
 	rb.Push(dataPoint)
 
-	storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+	storeDataPoints(dataPoint.Key, []models.DataPoint{dataPoint})
 
-	lastValue.Store(dataPoint.ID, dataPoint.Value)
-	lastTimestamp.Store(dataPoint.ID, dataPoint.Timestamp)
+	lastValue.Store(dataPoint.Key, dataPoint.Value)
+	lastTimestamp.Store(dataPoint.Key, dataPoint.Timestamp)
 }
 
 func PatchDataPoints(dataPoints []models.DataPoint, key string) {
@@ -240,7 +240,7 @@ func FormatDataPoints(dataPoints []models.DataPoint) string {
 	var response string
 
 	for i, dp := range dataPoints {
-		response += fmt.Sprintf("%s,%d,%.2f", dp.ID, dp.Timestamp, dp.Value)
+		response += fmt.Sprintf("%s,%d,%.2f", dp.Key, dp.Timestamp, dp.Value)
 		if i < len(dataPoints)-1 {
 			response += "|"
 		}

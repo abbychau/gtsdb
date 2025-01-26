@@ -58,7 +58,7 @@ func handleSSE(w http.ResponseWriter, key string, fanoutManager *fanout.Fanout) 
 
 	id := time.Now().UnixNano()
 	fanoutManager.AddConsumer(int(id), func(msg models.DataPoint) {
-		if msg.ID == key {
+		if msg.Key == key {
 			resp := Response{Success: true, Data: msg}
 			jsonData, _ := json.Marshal(resp)
 			fmt.Fprintf(w, "data: %s\n\n", jsonData)

@@ -39,7 +39,7 @@ func TestStoreDataPoints(t *testing.T) {
 	dataPoints := make([]models.DataPoint, 16000)
 	for i := 0; i < 16000; i++ {
 		dataPoints[i] = models.DataPoint{
-			ID:        id,
+			Key:       id,
 			Timestamp: int64(i * 1000), // Timestamps at 1-second intervals
 			Value:     float64(i),
 		}
@@ -83,7 +83,7 @@ func TestReadFiledDataPoints(t *testing.T) {
 	dataPoints := make([]models.DataPoint, 16000)
 	for i := 0; i < 16000; i++ {
 		dataPoints[i] = models.DataPoint{
-			ID:        id,
+			Key:       id,
 			Timestamp: int64(i * 1000), // Timestamps at 1-second intervals
 			Value:     float64(i),
 		}
@@ -121,9 +121,9 @@ func TestReadLastFiledDataPoints(t *testing.T) {
 
 	// Store test data
 	dataPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1111111000, Value: 1.0},
-		{ID: id, Timestamp: 1111112000, Value: 2.0},
-		{ID: id, Timestamp: 3000, Value: 3.0},
+		{Key: id, Timestamp: 1111111000, Value: 1.0},
+		{Key: id, Timestamp: 1111112000, Value: 2.0},
+		{Key: id, Timestamp: 3000, Value: 3.0},
 	}
 	storeDataPoints(id, dataPoints)
 
@@ -203,11 +203,11 @@ func TestBufferedDataPoints(t *testing.T) {
 	// Test data
 	now := time.Now().Unix()
 	dataPoints := []models.DataPoint{
-		{ID: id, Timestamp: now - 4, Value: 1.0},
-		{ID: id, Timestamp: now - 3, Value: 2.0},
-		{ID: id, Timestamp: now - 2, Value: 3.0},
-		{ID: id, Timestamp: now - 1, Value: 4.0},
-		{ID: id, Timestamp: now, Value: 5.0},
+		{Key: id, Timestamp: now - 4, Value: 1.0},
+		{Key: id, Timestamp: now - 3, Value: 2.0},
+		{Key: id, Timestamp: now - 2, Value: 3.0},
+		{Key: id, Timestamp: now - 1, Value: 4.0},
+		{Key: id, Timestamp: now, Value: 5.0},
 	}
 
 	// Store in buffer
@@ -347,16 +347,16 @@ func TestPatchDataPointsEmptyKey(t *testing.T) {
 
 	// Initial data
 	initialPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
-		{ID: id, Timestamp: 4000, Value: 4.0},
+		{Key: id, Timestamp: 1000, Value: 1.0},
+		{Key: id, Timestamp: 2000, Value: 2.0},
+		{Key: id, Timestamp: 4000, Value: 4.0},
 	}
 	storeDataPoints(id, initialPoints)
 
 	// Patch data
 	patchPoints := []models.DataPoint{
-		{ID: id, Timestamp: 3000, Value: 3.0},
-		{ID: id, Timestamp: 5000, Value: 5.0},
+		{Key: id, Timestamp: 3000, Value: 3.0},
+		{Key: id, Timestamp: 5000, Value: 5.0},
 	}
 	PatchDataPoints(patchPoints, id)
 
@@ -395,16 +395,16 @@ func TestPatchDataPointsExistingTimestamps(t *testing.T) {
 
 	// Initial data
 	initialPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
-		{ID: id, Timestamp: 3000, Value: 3.0},
+		{Key: id, Timestamp: 1000, Value: 1.0},
+		{Key: id, Timestamp: 2000, Value: 2.0},
+		{Key: id, Timestamp: 3000, Value: 3.0},
 	}
 	storeDataPoints(id, initialPoints)
 
 	// Patch same timestamps with different values
 	patchPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 10.0},
-		{ID: id, Timestamp: 2000, Value: 20.0},
+		{Key: id, Timestamp: 1000, Value: 10.0},
+		{Key: id, Timestamp: 2000, Value: 20.0},
 	}
 	PatchDataPoints(patchPoints, id)
 
@@ -440,8 +440,8 @@ func TestPatchDataPointsEmptyDataset(t *testing.T) {
 
 	// Patch data into empty dataset
 	patchPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
+		{Key: id, Timestamp: 1000, Value: 1.0},
+		{Key: id, Timestamp: 2000, Value: 2.0},
 	}
 	PatchDataPoints(patchPoints, id)
 
@@ -476,8 +476,8 @@ func TestPatchDataPointsConcurrent(t *testing.T) {
 
 	// Initial data
 	initialPoints := []models.DataPoint{
-		{ID: id, Timestamp: 1000, Value: 1.0},
-		{ID: id, Timestamp: 2000, Value: 2.0},
+		{Key: id, Timestamp: 1000, Value: 1.0},
+		{Key: id, Timestamp: 2000, Value: 2.0},
 	}
 	storeDataPoints(id, initialPoints)
 
@@ -488,7 +488,7 @@ func TestPatchDataPointsConcurrent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			patchPoints := []models.DataPoint{
-				{ID: id, Timestamp: int64(3000 + i*1000), Value: float64(3 + i)},
+				{Key: id, Timestamp: int64(3000 + i*1000), Value: float64(3 + i)},
 			}
 			PatchDataPoints(patchPoints, id)
 		}(i)
