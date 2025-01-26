@@ -19,6 +19,32 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	scanner := bufio.NewScanner(conn)
 	subscribingDevices := []string{}
 
+	// Add done channel for cleanup
+	done := make(chan bool)
+
+	// Start ping sender
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				if err := json.NewEncoder(conn).Encode(Response{Success: true, Message: "ping"}); err != nil {
+					utils.Log("Client %d failed ping", id)
+					if len(subscribingDevices) > 0 {
+						fanoutManager.RemoveConsumer(id)
+					}
+					conn.Close()
+					return
+				}
+			}
+		}
+	}()
+
 	for scanner.Scan() {
 		var op Operation
 		if err := json.Unmarshal(scanner.Bytes(), &op); err != nil {
@@ -75,5 +101,12 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		}
 
 		json.NewEncoder(conn).Encode(response)
+	}
+
+	// Cleanup when the connection ends
+	close(done)
+	if len(subscribingDevices) > 0 {
+		utils.Log("Removing consumer %d due to disconnect", id)
+		fanoutManager.RemoveConsumer(id)
 	}
 }

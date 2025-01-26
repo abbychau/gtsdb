@@ -67,14 +67,14 @@ func HandleOperation(op Operation) Response {
 		return Response{Success: true, Data: data}
 	case "initkey":
 		buffer.InitKey(op.Key)
-		return Response{Success: true, Message: "Key initialized"}
+		return Response{Success: true, Message: "Key initialized: " + op.Key}
 	case "renamekey":
 		buffer.RenameKey(op.Key, op.ToKey)
-		return Response{Success: true, Message: "Key renamed"}
+		return Response{Success: true, Message: "Key renamed: " + op.Key + " -> " + op.ToKey}
 
 	case "deletekey":
 		buffer.DeleteKey(op.Key)
-		return Response{Success: true, Message: "Key deleted"}
+		return Response{Success: true, Message: "Key deleted: " + op.Key}
 	case "write":
 		if op.Write == nil {
 			return Response{Success: false, Message: "Write data required"}
@@ -185,7 +185,7 @@ func HandleOperation(op Operation) Response {
 		return Response{Success: true, Data: buffer.GetAllIdsWithCount()}
 	case "flush":
 		buffer.FlushRemainingDataPoints()
-		return Response{Success: true, Message: "Data points flushed"}
+		return Response{Success: true, Message: "Data flushed"}
 
 	case "data-patch":
 		if op.Data == "" {
