@@ -48,7 +48,7 @@ go build .
 {
     "operation":"write",
     "Write": {
-        "id" : "a_sensor1",
+        "key" : "a_sensor1",
         "Value": 32242424243333333333.3333
     }
 }
@@ -58,7 +58,7 @@ go build .
 {
     "operation":"read",
     "Read": {
-        "id" : "a_sensor1",
+        "key" : "a_sensor1",
         "start_timestamp": 1717965210,
         "end_timestamp": 1717965211,
         "downsampling": 3
@@ -67,7 +67,7 @@ go build .
 {
     "operation":"read",
     "Read": {
-        "id" : "a_sensor1",
+        "key" : "a_sensor1",
         "lastx": 1
     }
 }
@@ -147,27 +147,10 @@ ok      gtsdb/concurrent        147.859s
 ```
 
 
-
-
-## Done/Todo/Feature list
-
-- [x] Simple Indexing so to avoid full file scanning
-- [x] Downsampling data
-- [x] TCP Server
-- [x] Tests
-- [x] HTTP Server (REST API)
-- [x] More Downsampling options(like sum, min, max, etc.)
-- [x] Do errcheck Handling
-- [x] Subscription and then streaming (cmd: `subscribe,sensor1`, `unsubscribe,sensor1`)
-- [x] Buffering data in memory before writing to disk, this is to serve recent data faster and enhance write performance
-- [x] 80% test coverage ([Report](./docs/coverage.html))
-
 ## Generate Test Coverage Report
 
 ```bash
-go test ./... -coverprofile=docs/coverage -p 1
-go tool cover -html docs/coverage -o docs/coverage.html
-start .\docs\coverage.html
+make GenerateTest
 ```
 
 ## License

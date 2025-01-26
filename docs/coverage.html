@@ -55,19 +55,19 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (94.9%)</option>
+				<option value="file0">gtsdb/buffer/external.go (87.6%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (92.3%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (90.8%)</option>
 				
-				<option value="file2">gtsdb/concurrent/lru.go (95.0%)</option>
+				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
 				
 				<option value="file3">gtsdb/concurrent/map.go (100.0%)</option>
 				
 				<option value="file4">gtsdb/concurrent/set.go (100.0%)</option>
 				
-				<option value="file5">gtsdb/fanout/fanout.go (100.0%)</option>
+				<option value="file5">gtsdb/fanout/fanout.go (93.8%)</option>
 				
-				<option value="file6">gtsdb/main.go (90.6%)</option>
+				<option value="file6">gtsdb/main.go (82.8%)</option>
 				
 				<option value="file7">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
 				
@@ -197,24 +197,25 @@ func DeleteKey(dataPointId string) <span class="cov8" title="1">{
 }
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="1">{
-        allIds.Add(dataPoint.ID)
+        allIds.Add(dataPoint.Key)
+
         if cacheSize == 0 </span><span class="cov8" title="1">{
-                storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+                storeDataPoints(dataPoint.Key, []models.DataPoint{dataPoint})
                 return
         }</span>
 
-        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Load(dataPoint.ID)
-        if !ok </span><span class="cov8" title="1">{
+        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Load(dataPoint.Key)
+        if !ok </span><span class="cov0" title="0">{
                 newRb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
-                idToRingBufferMap.Store(dataPoint.ID, newRb)
+                idToRingBufferMap.Store(dataPoint.Key, newRb)
                 rb = newRb
         }</span>
-        <span class="cov8" title="1">rb.Push(dataPoint)
+        <span class="cov0" title="0">rb.Push(dataPoint)
 
-        storeDataPoints(dataPoint.ID, []models.DataPoint{dataPoint})
+        storeDataPoints(dataPoint.Key, []models.DataPoint{dataPoint})
 
-        lastValue[dataPoint.ID] = dataPoint.Value
-        lastTimestamp[dataPoint.ID] = dataPoint.Timestamp</span>
+        lastValue.Store(dataPoint.Key, dataPoint.Value)
+        lastTimestamp.Store(dataPoint.Key, dataPoint.Timestamp)</span>
 }
 
 func PatchDataPoints(dataPoints []models.DataPoint, key string) <span class="cov8" title="1">{
@@ -296,7 +297,7 @@ func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggrega
 
 func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
 
-        if checkIfBufferHasEnoughDataPoints(id, count) </span><span class="cov8" title="1">{
+        if checkIfBufferHasEnoughDataPoints(id, count) </span><span class="cov0" title="0">{
                 return readLastBufferedDataPoints(id, count)
         }</span>
 
@@ -326,7 +327,7 @@ func FormatDataPoints(dataPoints []models.DataPoint) string <span class="cov8" t
         var response string
 
         for i, dp := range dataPoints </span><span class="cov8" title="1">{
-                response += fmt.Sprintf("%s,%d,%.2f", dp.ID, dp.Timestamp, dp.Value)
+                response += fmt.Sprintf("%s,%d,%.2f", dp.Key, dp.Timestamp, dp.Value)
                 if i &lt; len(dataPoints)-1 </span><span class="cov8" title="1">{
                         response += "|"
                 }</span>
@@ -467,7 +468,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <
                 }
 
                 <span class="cov8" title="1">dataPoints = append(dataPoints, models.DataPoint{
-                        ID:        id,
+                        Key:       id,
                         Timestamp: timestamp,
                         Value:     value,
                 })</span>
@@ -548,7 +549,7 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 
                 <span class="cov8" title="1">if timestamp &gt;= startTime &amp;&amp; timestamp &lt;= endTime </span><span class="cov8" title="1">{
                         dataPoints = append(dataPoints, models.DataPoint{
-                                ID:        id,
+                                Key:       id,
                                 Timestamp: timestamp,
                                 Value:     value,
                         })
@@ -571,7 +572,7 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
         <span class="cov8" title="1">var result []models.DataPoint
         for i := 0; i &lt; rb.Size(); i++ </span><span class="cov8" title="1">{
                 dataPoint := rb.Get(i)
-                dataPoint.ID = id
+                dataPoint.Key = id
                 if dataPoint.Timestamp &gt;= startTime &amp;&amp; dataPoint.Timestamp &lt;= endTime </span><span class="cov8" title="1">{
                         result = append(result, dataPoint)
                 }</span>
@@ -584,13 +585,17 @@ func checkIfBufferHasEnoughDataPoints(id string, count int) bool <span class="co
         if !ok </span><span class="cov8" title="1">{
                 return false
         }</span>
-        <span class="cov8" title="1">return rb.Size() &gt;= count</span>
+        <span class="cov0" title="0">return rb.Size() &gt;= count</span>
 }
 
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
-        if count == 1 &amp;&amp; lastTimestamp[id] != 0 </span><span class="cov8" title="1">{
-                return []models.DataPoint{{Timestamp: lastTimestamp[id], Value: lastValue[id], ID: id}}
-        }</span>
+        if count == 1 </span><span class="cov8" title="1">{
+                timestampValue, ok := lastTimestamp.Load(id)
+                if ok &amp;&amp; timestampValue != 0 </span><span class="cov0" title="0">{
+                        value, _ := lastValue.Load(id)
+                        return []models.DataPoint{{Timestamp: timestampValue, Value: value, Key: id}}
+                }</span>
+        }
 
         <span class="cov8" title="1">rb, ok := idToRingBufferMap.Load(id)
         if !ok </span><span class="cov8" title="1">{
@@ -646,7 +651,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                                         value = intervalSum / float64(intervalCount)</span>
                                 }
                                 <span class="cov8" title="1">downsampled = append(downsampled, models.DataPoint{
-                                        ID:        dp.ID,
+                                        Key:       dp.Key,
                                         Timestamp: intervalStart,
                                         Value:     value,
                                 })</span>
@@ -690,7 +695,7 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
                         value = intervalSum / float64(intervalCount)</span>
                 }
                 <span class="cov8" title="1">downsampled = append(downsampled, models.DataPoint{
-                        ID:        dataPoints[len(dataPoints)-1].ID,
+                        Key:       dataPoints[len(dataPoints)-1].Key,
                         Timestamp: intervalStart,
                         Value:     value,
                 })</span>
@@ -777,7 +782,7 @@ func (l *LRU[K, V]) moveToFront(node *Node[K, V]) <span class="cov8" title="1">{
         <span class="cov8" title="1">if node == l.tail </span><span class="cov8" title="1">{
                 l.tail = node.prev
                 l.tail.next = nil
-        }</span> else<span class="cov0" title="0"> {
+        }</span> else<span class="cov8" title="1"> {
                 node.prev.next = node.next
                 node.next.prev = node.prev
         }</span>
@@ -973,8 +978,9 @@ func (s *Set[T]) Intersection(other *Set[T]) *Set[T] <span class="cov8" title="1
 		<pre class="file" id="file5" style="display: none">package fanout
 
 import (
+        "gtsdb/concurrent"
         models "gtsdb/models"
-        "sync"
+        "gtsdb/utils"
 )
 
 type Consumer struct {
@@ -983,15 +989,13 @@ type Consumer struct {
 }
 
 type Fanout struct {
-        consumers []*Consumer
+        consumers concurrent.Set[*Consumer]
         messageCh chan models.DataPoint
-        mu        sync.RWMutex
-        wg        sync.WaitGroup
 }
 
 func NewFanout() *Fanout <span class="cov8" title="1">{
         fanoutManager := &amp;Fanout{
-                consumers: make([]*Consumer, 0),
+                consumers: *concurrent.NewSet[*Consumer](),
                 messageCh: make(chan models.DataPoint),
         }
         go fanoutManager.producer()
@@ -999,30 +1003,29 @@ func NewFanout() *Fanout <span class="cov8" title="1">{
 }</span>
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) <span class="cov8" title="1">{
-        f.mu.Lock()
-        defer f.mu.Unlock()
         consumer := &amp;Consumer{ID: id, Callback: callback}
-        f.consumers = append(f.consumers, consumer)
-        f.wg.Add(1)
+        f.consumers.Add(consumer)
 }</span>
 
 func (f *Fanout) GetConsumers() []*Consumer <span class="cov8" title="1">{
-        f.mu.RLock()
-        defer f.mu.RUnlock()
-        return f.consumers
+        return f.consumers.Items()
 }</span>
 
-func (f *Fanout) RemoveConsumer(id int) <span class="cov8" title="1">{
-        f.mu.Lock()
-        defer f.mu.Unlock()
-        for i, c := range f.consumers </span><span class="cov8" title="1">{
+func (f *Fanout) GetConsumer(id int) *Consumer <span class="cov8" title="1">{
+        for _, c := range f.GetConsumers() </span><span class="cov8" title="1">{
                 if c.ID == id </span><span class="cov8" title="1">{
-                        f.consumers = append(f.consumers[:i], f.consumers[i+1:]...)
-                        f.wg.Done()
-                        break</span>
-                }
+                        return c
+                }</span>
         }
+        <span class="cov0" title="0">return nil</span>
 }
+
+func (f *Fanout) RemoveConsumer(id int) <span class="cov8" title="1">{
+
+        f.consumers.Remove(f.GetConsumer(id))
+
+        utils.Log("Removed consumer %d", id)
+}</span>
 
 func (f *Fanout) Publish(msg models.DataPoint) <span class="cov8" title="1">{
         f.messageCh &lt;- msg
@@ -1030,11 +1033,10 @@ func (f *Fanout) Publish(msg models.DataPoint) <span class="cov8" title="1">{
 
 func (f *Fanout) producer() <span class="cov8" title="1">{
         for msg := range f.messageCh </span><span class="cov8" title="1">{
-                f.mu.RLock()
-                for _, c := range f.consumers </span><span class="cov8" title="1">{
+
+                for _, c := range f.GetConsumers() </span><span class="cov8" title="1">{
                         go c.Callback(msg)
                 }</span>
-                <span class="cov8" title="1">f.mu.RUnlock()</span>
         }
 }
 </pre>
@@ -1042,6 +1044,7 @@ func (f *Fanout) producer() <span class="cov8" title="1">{
 		<pre class="file" id="file6" style="display: none">package main
 
 import (
+        "flag"
         "gtsdb/buffer"
         "gtsdb/fanout"
         "gtsdb/handlers"
@@ -1056,8 +1059,18 @@ import (
 )
 
 func main() <span class="cov0" title="0">{
-        run("gtsdb.ini")
-}</span>
+        // Set default config file
+        defaultConfig := "gtsdb.ini"
+
+        // Parse command line arguments
+        flag.Parse()
+        configFile := defaultConfig
+        if args := flag.Args(); len(args) &gt; 0 </span><span class="cov0" title="0">{
+                configFile = args[0]
+        }</span>
+
+        <span class="cov0" title="0">run(configFile)</span>
+}
 
 func run(configFile string) <span class="cov8" title="1">{
         loadConfig(configFile)
@@ -1126,7 +1139,7 @@ func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) <
 func loadConfig(iniFile string) <span class="cov8" title="1">{
         utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
         utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
-        utils.Logln("🏃跑🏃跑跑跑🏃 🐹")
+        utils.Log("🏃現在在用 %v 唷", iniFile)
         utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
         cfg, err := ini.Load(iniFile)
