@@ -10,7 +10,7 @@ import (
 )
 
 func TestSetupHTTPRoutes(t *testing.T) {
-	fanoutManager := fanout.NewFanout()
+	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for handler tests
 	handler := SetupHTTPRoutes(fanoutManager)
 
 	tests := []struct {

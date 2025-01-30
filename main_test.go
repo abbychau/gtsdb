@@ -88,7 +88,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 func TestTCPServerInitialization(t *testing.T) {
 	utils.TcpListenAddr = "localhost:5555"
-	fanoutManager := fanout.NewFanout()
+	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
 	stop := make(chan struct{})
 
 	// Start TCP server in goroutine
@@ -119,7 +119,7 @@ func TestTCPServerInitialization(t *testing.T) {
 
 func TestHTTPServerInitialization(t *testing.T) {
 	utils.HttpListenAddr = "localhost:5556"
-	fanoutManager := fanout.NewFanout()
+	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
 	stop := make(chan struct{})
 
 	// Start HTTP server in goroutine

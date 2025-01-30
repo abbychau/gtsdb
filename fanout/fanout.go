@@ -13,16 +13,17 @@ type Consumer struct {
 
 type Fanout struct {
 	consumers concurrent.Set[*Consumer]
-	messageCh chan models.DataPoint
+	pending   chan models.DataPoint
 }
 
-func NewFanout() *Fanout {
-	fanoutManager := &Fanout{
-		consumers: *concurrent.NewSet[*Consumer](),
-		messageCh: make(chan models.DataPoint),
+func NewFanout(bufferSize int) *Fanout {
+	if bufferSize < 1 {
+		bufferSize = 1
 	}
-	go fanoutManager.producer()
-	return fanoutManager
+	return &Fanout{
+		consumers: *concurrent.NewSet[*Consumer](),
+		pending:   make(chan models.DataPoint, bufferSize),
+	}
 }
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) {
@@ -44,21 +45,19 @@ func (f *Fanout) GetConsumer(id int) *Consumer {
 }
 
 func (f *Fanout) RemoveConsumer(id int) {
-
 	f.consumers.Remove(f.GetConsumer(id))
-
 	utils.Log("Removed consumer %d", id)
 }
 
 func (f *Fanout) Publish(msg models.DataPoint) {
-	f.messageCh <- msg
-}
+	// First try to queue the message
+	f.pending <- msg
 
-func (f *Fanout) producer() {
-	for msg := range f.messageCh {
+	// Get message once
+	message := <-f.pending
 
-		for _, c := range f.GetConsumers() {
-			go c.Callback(msg)
-		}
+	// Then process it synchronously for all consumers
+	for _, c := range f.GetConsumers() {
+		c.Callback(message)
 	}
 }

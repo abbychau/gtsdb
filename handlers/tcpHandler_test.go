@@ -77,7 +77,7 @@ func TestHandleTcpConnection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			conn := newMockConn(tt.input)
-			fanoutManager := fanout.NewFanout()
+			fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for handler tests
 
 			HandleTcpConnection(conn, fanoutManager)
 

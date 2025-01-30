@@ -32,7 +32,7 @@ func main() {
 func run(configFile string) {
 	loadConfig(configFile)
 	utils.InitDataDirectory()
-	fanoutManager := fanout.NewFanout()
+	fanoutManager := fanout.NewFanout(100000) // Buffer size of 1000 for production use
 
 	// Create stop channels
 	tcpStop := make(chan struct{})

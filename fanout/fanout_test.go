@@ -8,7 +8,7 @@ import (
 )
 
 func TestBasicFanout(t *testing.T) {
-	fanout := NewFanout()
+	fanout := NewFanout(2)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -43,7 +43,7 @@ func TestBasicFanout(t *testing.T) {
 }
 
 func TestConsumerRemoval(t *testing.T) {
-	fanout := NewFanout()
+	fanout := NewFanout(2)
 
 	var callCount int
 	var mu sync.Mutex
@@ -70,7 +70,7 @@ func TestConsumerRemoval(t *testing.T) {
 }
 
 func TestConcurrentPublish(t *testing.T) {
-	fanout := NewFanout()
+	fanout := NewFanout(10) // Larger buffer for concurrent test
 
 	messageCount := 100
 	consumerCount := 3
@@ -108,7 +108,7 @@ func TestConcurrentPublish(t *testing.T) {
 }
 
 func TestGetConsumers(t *testing.T) {
-	fanout := NewFanout()
+	fanout := NewFanout(2)
 
 	// Add three consumers
 	consumers := []int{1, 2, 3}
@@ -139,6 +139,98 @@ func TestGetConsumers(t *testing.T) {
 	actualConsumers = fanout.GetConsumers()
 	if len(actualConsumers) != len(consumers)-1 {
 		t.Errorf("Expected %d consumers after removal, got %d", len(consumers)-1, len(actualConsumers))
+	}
+}
+
+func TestNewFanoutInvalidBuffer(t *testing.T) {
+	fanout := NewFanout(0)
+	if cap(fanout.pending) != 1 {
+		t.Errorf("Expected buffer size 1 for invalid input, got %d", cap(fanout.pending))
+	}
+
+	fanout = NewFanout(-1)
+	if cap(fanout.pending) != 1 {
+		t.Errorf("Expected buffer size 1 for invalid input, got %d", cap(fanout.pending))
+	}
+}
+
+func TestGetConsumer(t *testing.T) {
+	fanout := NewFanout(1)
+
+	// Test getting non-existent consumer
+	if consumer := fanout.GetConsumer(1); consumer != nil {
+		t.Error("Expected nil for non-existent consumer")
+	}
+
+	// Add a consumer and verify we can get it
+	testCallback := func(dp models.DataPoint) {}
+	fanout.AddConsumer(1, testCallback)
+
+	consumer := fanout.GetConsumer(1)
+	if consumer == nil {
+		t.Error("Expected to find consumer with ID 1")
+	}
+	if consumer.ID != 1 {
+		t.Errorf("Expected consumer ID 1, got %d", consumer.ID)
+	}
+
+	// Add another consumer and verify we can still get the correct one
+	fanout.AddConsumer(2, testCallback)
+	consumer = fanout.GetConsumer(1)
+	if consumer == nil || consumer.ID != 1 {
+		t.Error("Failed to get correct consumer after adding another")
+	}
+
+	// Remove the consumer and verify it's gone
+	fanout.RemoveConsumer(1)
+	if consumer := fanout.GetConsumer(1); consumer != nil {
+		t.Error("Consumer should have been removed")
+	}
+}
+
+func TestConcurrentConsumerModification(t *testing.T) {
+	fanout := NewFanout(1)
+
+	// Add initial consumers
+	for i := 1; i <= 5; i++ {
+		fanout.AddConsumer(i, func(dp models.DataPoint) {})
+	}
+
+	var wg sync.WaitGroup
+	operations := 100
+	wg.Add(operations * 2) // Add and remove operations
+
+	// Concurrently add and remove consumers
+	for i := 6; i < 6+operations; i++ {
+		id := i
+		go func() {
+			defer wg.Done()
+			fanout.AddConsumer(id, func(dp models.DataPoint) {})
+		}()
+
+		go func() {
+			defer wg.Done()
+			fanout.RemoveConsumer(id - 5) // Remove previously added consumers
+		}()
+	}
+
+	if waitTimeout(&wg, 2*time.Second) {
+		t.Fatal("Timeout waiting for concurrent operations")
+	}
+
+	// Verify the final state
+	consumers := fanout.GetConsumers()
+	if len(consumers) == 0 {
+		t.Error("Expected some consumers to remain")
+	}
+
+	// Ensure no duplicate IDs
+	seen := make(map[int]bool)
+	for _, c := range consumers {
+		if seen[c.ID] {
+			t.Errorf("Found duplicate consumer ID: %d", c.ID)
+		}
+		seen[c.ID] = true
 	}
 }
 

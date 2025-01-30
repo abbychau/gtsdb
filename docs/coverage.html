@@ -65,7 +65,7 @@
 				
 				<option value="file4">gtsdb/concurrent/set.go (100.0%)</option>
 				
-				<option value="file5">gtsdb/fanout/fanout.go (93.8%)</option>
+				<option value="file5">gtsdb/fanout/fanout.go (100.0%)</option>
 				
 				<option value="file6">gtsdb/main.go (82.8%)</option>
 				
@@ -990,17 +990,18 @@ type Consumer struct {
 
 type Fanout struct {
         consumers concurrent.Set[*Consumer]
-        messageCh chan models.DataPoint
+        pending   chan models.DataPoint
 }
 
-func NewFanout() *Fanout <span class="cov8" title="1">{
-        fanoutManager := &amp;Fanout{
+func NewFanout(bufferSize int) *Fanout <span class="cov8" title="1">{
+        if bufferSize &lt; 1 </span><span class="cov8" title="1">{
+                bufferSize = 1
+        }</span>
+        <span class="cov8" title="1">return &amp;Fanout{
                 consumers: *concurrent.NewSet[*Consumer](),
-                messageCh: make(chan models.DataPoint),
-        }
-        go fanoutManager.producer()
-        return fanoutManager
-}</span>
+                pending:   make(chan models.DataPoint, bufferSize),
+        }</span>
+}
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) <span class="cov8" title="1">{
         consumer := &amp;Consumer{ID: id, Callback: callback}
@@ -1017,27 +1018,25 @@ func (f *Fanout) GetConsumer(id int) *Consumer <span class="cov8" title="1">{
                         return c
                 }</span>
         }
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 func (f *Fanout) RemoveConsumer(id int) <span class="cov8" title="1">{
-
         f.consumers.Remove(f.GetConsumer(id))
-
         utils.Log("Removed consumer %d", id)
 }</span>
 
 func (f *Fanout) Publish(msg models.DataPoint) <span class="cov8" title="1">{
-        f.messageCh &lt;- msg
-}</span>
+        // First try to queue the message
+        f.pending &lt;- msg
 
-func (f *Fanout) producer() <span class="cov8" title="1">{
-        for msg := range f.messageCh </span><span class="cov8" title="1">{
+        // Get message once
+        message := &lt;-f.pending
 
-                for _, c := range f.GetConsumers() </span><span class="cov8" title="1">{
-                        go c.Callback(msg)
-                }</span>
-        }
+        // Then process it synchronously for all consumers
+        for _, c := range f.GetConsumers() </span><span class="cov8" title="1">{
+                c.Callback(message)
+        }</span>
 }
 </pre>
 		
@@ -1075,7 +1074,7 @@ func main() <span class="cov0" title="0">{
 func run(configFile string) <span class="cov8" title="1">{
         loadConfig(configFile)
         utils.InitDataDirectory()
-        fanoutManager := fanout.NewFanout()
+        fanoutManager := fanout.NewFanout(100000) // Buffer size of 1000 for production use
 
         // Create stop channels
         tcpStop := make(chan struct{})
