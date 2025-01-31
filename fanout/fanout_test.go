@@ -169,17 +169,20 @@ func TestGetConsumer(t *testing.T) {
 
 	consumer := fanout.GetConsumer(1)
 	if consumer == nil {
-		t.Error("Expected to find consumer with ID 1")
+		t.Fatal("Expected to find consumer with ID 1, but got nil")
 	}
 	if consumer.ID != 1 {
-		t.Errorf("Expected consumer ID 1, got %d", consumer.ID)
+		t.Fatalf("Expected consumer ID 1, got %d", consumer.ID)
 	}
 
 	// Add another consumer and verify we can still get the correct one
 	fanout.AddConsumer(2, testCallback)
 	consumer = fanout.GetConsumer(1)
-	if consumer == nil || consumer.ID != 1 {
-		t.Error("Failed to get correct consumer after adding another")
+	if consumer == nil {
+		t.Fatal("Failed to get consumer with ID 1 after adding another consumer")
+	}
+	if consumer.ID != 1 {
+		t.Fatalf("Expected consumer ID 1, got %d", consumer.ID)
 	}
 
 	// Remove the consumer and verify it's gone

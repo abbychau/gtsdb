@@ -10,3 +10,5 @@ Benchmark:
 	go test -benchmem -run=^$ -bench ^Bench gtsdb/concurrent -benchtime=5s
 lint:
 	golangci-lint run
+lint-fix:
+	golangci-lint run --fix
