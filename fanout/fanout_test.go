@@ -8,7 +8,7 @@ import (
 )
 
 func TestBasicFanout(t *testing.T) {
-	fanout := NewFanout(2)
+	fanout := NewFanout(1)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -43,7 +43,7 @@ func TestBasicFanout(t *testing.T) {
 }
 
 func TestConsumerRemoval(t *testing.T) {
-	fanout := NewFanout(2)
+	fanout := NewFanout(1)
 
 	var callCount int
 	var mu sync.Mutex
@@ -70,7 +70,7 @@ func TestConsumerRemoval(t *testing.T) {
 }
 
 func TestConcurrentPublish(t *testing.T) {
-	fanout := NewFanout(10) // Larger buffer for concurrent test
+	fanout := NewFanout(1)
 
 	messageCount := 100
 	consumerCount := 3
@@ -108,7 +108,7 @@ func TestConcurrentPublish(t *testing.T) {
 }
 
 func TestGetConsumers(t *testing.T) {
-	fanout := NewFanout(2)
+	fanout := NewFanout(1)
 
 	// Add three consumers
 	consumers := []int{1, 2, 3}
@@ -143,14 +143,15 @@ func TestGetConsumers(t *testing.T) {
 }
 
 func TestNewFanoutInvalidBuffer(t *testing.T) {
+	// Buffer size parameter is now ignored, just verify initialization
 	fanout := NewFanout(0)
-	if cap(fanout.pending) != 1 {
-		t.Errorf("Expected buffer size 1 for invalid input, got %d", cap(fanout.pending))
+	if fanout.pending == nil {
+		t.Error("Expected pending pointer to be initialized")
 	}
 
 	fanout = NewFanout(-1)
-	if cap(fanout.pending) != 1 {
-		t.Errorf("Expected buffer size 1 for invalid input, got %d", cap(fanout.pending))
+	if fanout.pending == nil {
+		t.Error("Expected pending pointer to be initialized")
 	}
 }
 

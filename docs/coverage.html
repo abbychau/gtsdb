@@ -55,9 +55,9 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (87.6%)</option>
+				<option value="file0">gtsdb/buffer/external.go (94.9%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (90.8%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (92.4%)</option>
 				
 				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
 				
@@ -67,9 +67,9 @@
 				
 				<option value="file5">gtsdb/fanout/fanout.go (100.0%)</option>
 				
-				<option value="file6">gtsdb/main.go (82.8%)</option>
+				<option value="file6">gtsdb/main.go (86.2%)</option>
 				
-				<option value="file7">gtsdb/synchronous/ringbuffer.go (93.8%)</option>
+				<option value="file7">gtsdb/synchronous/ringbuffer.go (100.0%)</option>
 				
 				<option value="file8">gtsdb/utils/utils.go (87.5%)</option>
 				
@@ -204,13 +204,13 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) <span class="cov8" title="
                 return
         }</span>
 
-        <span class="cov0" title="0">rb, ok := idToRingBufferMap.Load(dataPoint.Key)
-        if !ok </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">rb, ok := idToRingBufferMap.Load(dataPoint.Key)
+        if !ok </span><span class="cov8" title="1">{
                 newRb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
                 idToRingBufferMap.Store(dataPoint.Key, newRb)
                 rb = newRb
         }</span>
-        <span class="cov0" title="0">rb.Push(dataPoint)
+        <span class="cov8" title="1">rb.Push(dataPoint)
 
         storeDataPoints(dataPoint.Key, []models.DataPoint{dataPoint})
 
@@ -297,7 +297,7 @@ func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggrega
 
 func ReadLastDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
 
-        if checkIfBufferHasEnoughDataPoints(id, count) </span><span class="cov0" title="0">{
+        if checkIfBufferHasEnoughDataPoints(id, count) </span><span class="cov8" title="1">{
                 return readLastBufferedDataPoints(id, count)
         }</span>
 
@@ -585,13 +585,13 @@ func checkIfBufferHasEnoughDataPoints(id string, count int) bool <span class="co
         if !ok </span><span class="cov8" title="1">{
                 return false
         }</span>
-        <span class="cov0" title="0">return rb.Size() &gt;= count</span>
+        <span class="cov8" title="1">return rb.Size() &gt;= count</span>
 }
 
 func readLastBufferedDataPoints(id string, count int) []models.DataPoint <span class="cov8" title="1">{
         if count == 1 </span><span class="cov8" title="1">{
                 timestampValue, ok := lastTimestamp.Load(id)
-                if ok &amp;&amp; timestampValue != 0 </span><span class="cov0" title="0">{
+                if ok &amp;&amp; timestampValue != 0 </span><span class="cov8" title="1">{
                         value, _ := lastValue.Load(id)
                         return []models.DataPoint{{Timestamp: timestampValue, Value: value, Key: id}}
                 }</span>
@@ -978,6 +978,9 @@ func (s *Set[T]) Intersection(other *Set[T]) *Set[T] <span class="cov8" title="1
 		<pre class="file" id="file5" style="display: none">package fanout
 
 import (
+        "sync/atomic"
+        "unsafe"
+
         "gtsdb/concurrent"
         models "gtsdb/models"
         "gtsdb/utils"
@@ -990,18 +993,18 @@ type Consumer struct {
 
 type Fanout struct {
         consumers concurrent.Set[*Consumer]
-        pending   chan models.DataPoint
+        pending   unsafe.Pointer // *models.DataPoint
 }
 
-func NewFanout(bufferSize int) *Fanout <span class="cov8" title="1">{
-        if bufferSize &lt; 1 </span><span class="cov8" title="1">{
-                bufferSize = 1
-        }</span>
-        <span class="cov8" title="1">return &amp;Fanout{
+func NewFanout(_ int) *Fanout <span class="cov8" title="1">{
+        f := &amp;Fanout{
                 consumers: *concurrent.NewSet[*Consumer](),
-                pending:   make(chan models.DataPoint, bufferSize),
-        }</span>
-}
+        }
+        // Initialize with empty DataPoint
+        initial := &amp;models.DataPoint{}
+        atomic.StorePointer(&amp;f.pending, unsafe.Pointer(initial))
+        return f
+}</span>
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) <span class="cov8" title="1">{
         consumer := &amp;Consumer{ID: id, Callback: callback}
@@ -1027,15 +1030,18 @@ func (f *Fanout) RemoveConsumer(id int) <span class="cov8" title="1">{
 }</span>
 
 func (f *Fanout) Publish(msg models.DataPoint) <span class="cov8" title="1">{
-        // First try to queue the message
-        f.pending &lt;- msg
+        // Allocate new DataPoint on heap
+        newMsg := &amp;msg
+        // Atomically store the new message
+        atomic.StorePointer(&amp;f.pending, unsafe.Pointer(newMsg))
 
-        // Get message once
-        message := &lt;-f.pending
+        // Get latest message
+        ptr := atomic.LoadPointer(&amp;f.pending)
+        message := (*models.DataPoint)(ptr)
 
-        // Then process it synchronously for all consumers
+        // Process synchronously for all consumers
         for _, c := range f.GetConsumers() </span><span class="cov8" title="1">{
-                c.Callback(message)
+                c.Callback(*message)
         }</span>
 }
 </pre>
@@ -1095,7 +1101,7 @@ func run(configFile string) <span class="cov8" title="1">{
 
 func startTCPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) <span class="cov8" title="1">{
         listener, err := net.Listen("tcp", utils.TcpListenAddr)
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
                 utils.Errorln("Error listening:", err)
                 return
         }</span>
@@ -1214,7 +1220,7 @@ func (rb *RingBuffer[T]) Size() int <span class="cov8" title="1">{
         return rb.size
 }</span>
 
-func (rb *RingBuffer[T]) Capacity() int <span class="cov0" title="0">{
+func (rb *RingBuffer[T]) Capacity() int <span class="cov8" title="1">{
         return len(rb.buffer)
 }</span>
 </pre>

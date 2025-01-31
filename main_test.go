@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"gtsdb/fanout"
 	"gtsdb/utils"
@@ -81,9 +82,6 @@ func TestGracefulShutdown(t *testing.T) {
 	if _, err := os.Stat(testFile); err != nil {
 		t.Error("Expected test file to persist after graceful shutdown")
 	}
-
-	// Additional verification could be added here depending on what
-	// buffer.FlushRemainingDataPoints() does
 }
 
 func TestTCPServerInitialization(t *testing.T) {
@@ -117,6 +115,18 @@ func TestTCPServerInitialization(t *testing.T) {
 	}
 }
 
+func TestTCPServerWithInvalidAddress(t *testing.T) {
+	utils.TcpListenAddr = "invalid:address:format"
+	fanoutManager := fanout.NewFanout(10)
+	stop := make(chan struct{})
+
+	// Start TCP server with invalid address
+	startTCPServerWithStop(fanoutManager, stop)
+
+	// Should return without panic
+	close(stop)
+}
+
 func TestHTTPServerInitialization(t *testing.T) {
 	utils.HttpListenAddr = "localhost:5556"
 	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
@@ -148,21 +158,105 @@ func TestHTTPServerInitialization(t *testing.T) {
 	}
 }
 
+func TestHTTPServerWithInvalidAddress(t *testing.T) {
+	utils.HttpListenAddr = "invalid:address:format"
+	fanoutManager := fanout.NewFanout(10)
+	stop := make(chan struct{})
+
+	// Start HTTP server with invalid address
+	startHTTPServerWithStop(fanoutManager, stop)
+
+	// Should return without panic
+	close(stop)
+}
+
+func TestMainArgs(t *testing.T) {
+	// Save and restore original args
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	// Create temp config file
+	tmpDir := t.TempDir()
+	customConfig := filepath.Join(tmpDir, "custom.ini")
+	content := `[listens]
+tcp = "localhost:0"
+http = "localhost:0"
+[paths]
+data = "./testdata"`
+
+	if err := os.WriteFile(customConfig, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test cases
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{
+			name: "custom config",
+			args: []string{"cmd", customConfig},
+		},
+		{
+			name: "missing config falls back to default",
+			args: []string{"cmd"},
+		},
+		{
+			name: "nonexistent config",
+			args: []string{"cmd", "nonexistent.ini"},
+		},
+	}
+
+	// Run tests
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set args for this test
+			os.Args = tt.args
+
+			// Create default config if testing default path
+			if len(tt.args) == 1 {
+				if err := os.WriteFile("gtsdb.ini", []byte(content), 0644); err != nil {
+					t.Fatal(err)
+				}
+				defer os.Remove("gtsdb.ini")
+			}
+
+			// Call the function directly and verify it doesn't panic
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("main panicked: %v", r)
+					}
+				}()
+
+				flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+				flag.Parse()
+				configFile := "gtsdb.ini"
+				if args := flag.Args(); len(args) > 0 {
+					configFile = args[0]
+				}
+				loadConfig(configFile)
+			}()
+		})
+	}
+}
+
 func TestMainIntegration(t *testing.T) {
-	t.Skip("Skipping integration test")
+	// Create temporary config file
+	configPath := createTestIniFile(t)
 
-	// Create channel to simulate interrupt
+	// Run main with custom config in background
 	done := make(chan bool)
-
 	go func() {
-		// Run main in background
+		os.Args = []string{"cmd", configPath}
 		go main()
 
 		// Give servers time to start
-		time.Sleep(2000 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
 		// Verify both servers are running
-		tcpConn, err := net.Dial("tcp", utils.TcpListenAddr)
+		tcpConn, err := net.Dial("tcp", "localhost:5555")
 		if err != nil {
 			t.Errorf("TCP server not running: %v", err)
 		}
@@ -170,13 +264,17 @@ func TestMainIntegration(t *testing.T) {
 			tcpConn.Close()
 		}
 
-		resp, err := http.Get(fmt.Sprintf("http://%s/", utils.HttpListenAddr))
+		resp, err := http.Get("http://localhost:5556/health")
 		if err != nil {
 			t.Errorf("HTTP server not running: %v", err)
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
+
+		// Send interrupt signal
+		p, _ := os.FindProcess(os.Getpid())
+		p.Signal(os.Interrupt)
 
 		done <- true
 	}()

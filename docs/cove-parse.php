@@ -12,23 +12,23 @@ class CoverageAnalyzer {
         foreach ($lines as $line) {
             if (empty(trim($line))) continue;
             
-            // Parse line: file:start.col,end.col statements coverage
+            // Parse line: file:start.col,end.col numStatements count
             $parts = preg_split('/[\s]+/', trim($line));
             $file = explode(':', $parts[0])[0];
             $stmts = intval($parts[count($parts)-2]);
-            $covered = intval($parts[count($parts)-1]) === 1;
+            $execCount = intval($parts[count($parts)-1]);
 
             if (!isset($this->files[$file])) {
                 $this->files[$file] = ['total' => 0, 'covered' => 0];
             }
             
             $this->files[$file]['total'] += $stmts;
-            if ($covered) {
+            if ($execCount > 0) {
                 $this->files[$file]['covered'] += $stmts;
             }
             
             $this->totalStmts += $stmts;
-            if ($covered) {
+            if ($execCount > 0) {
                 $this->coveredStmts += $stmts;
             }
         }
@@ -130,4 +130,3 @@ $analyzer->analyze('docs/coverage');
 // Generate image (uncomment to output PNG instead of text)
 $analyzer->generateImage();
 $analyzer->generateImageOnlyTotalCoverage();
-

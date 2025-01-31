@@ -5,3 +5,4 @@ buffer/testdata/*
 testdata/*
 gtsdb.exe
 gtsdb.exe~
+gtsdb.ini

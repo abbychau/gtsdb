@@ -111,3 +111,39 @@ func BenchmarkRingBuffer_PushWithOverflow(b *testing.B) {
 		rb.Push(i)
 	}
 }
+
+func TestRingBuffer_Capacity(t *testing.T) {
+	// Test initial capacity
+	capacities := []int{1, 5, 10, 100}
+	for _, cap := range capacities {
+		rb := NewRingBuffer[int](cap)
+		if rb.Capacity() != cap {
+			t.Errorf("Expected capacity %d, got %d", cap, rb.Capacity())
+		}
+	}
+
+	// Test capacity remains constant after operations
+	rb := NewRingBuffer[int](3)
+	initialCap := rb.Capacity()
+
+	// After pushes
+	rb.Push(1)
+	rb.Push(2)
+	if rb.Capacity() != initialCap {
+		t.Errorf("Capacity changed after push: expected %d, got %d", initialCap, rb.Capacity())
+	}
+
+	// After overflow
+	rb.Push(3)
+	rb.Push(4)
+	if rb.Capacity() != initialCap {
+		t.Errorf("Capacity changed after overflow: expected %d, got %d", initialCap, rb.Capacity())
+	}
+
+	// After gets
+	rb.Get(0)
+	rb.GetAll()
+	if rb.Capacity() != initialCap {
+		t.Errorf("Capacity changed after gets: expected %d, got %d", initialCap, rb.Capacity())
+	}
+}

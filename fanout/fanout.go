@@ -1,6 +1,9 @@
 package fanout
 
 import (
+	"sync/atomic"
+	"unsafe"
+
 	"gtsdb/concurrent"
 	models "gtsdb/models"
 	"gtsdb/utils"
@@ -13,17 +16,17 @@ type Consumer struct {
 
 type Fanout struct {
 	consumers concurrent.Set[*Consumer]
-	pending   chan models.DataPoint
+	pending   unsafe.Pointer // *models.DataPoint
 }
 
-func NewFanout(bufferSize int) *Fanout {
-	if bufferSize < 1 {
-		bufferSize = 1
-	}
-	return &Fanout{
+func NewFanout(_ int) *Fanout {
+	f := &Fanout{
 		consumers: *concurrent.NewSet[*Consumer](),
-		pending:   make(chan models.DataPoint, bufferSize),
 	}
+	// Initialize with empty DataPoint
+	initial := &models.DataPoint{}
+	atomic.StorePointer(&f.pending, unsafe.Pointer(initial))
+	return f
 }
 
 func (f *Fanout) AddConsumer(id int, callback func(models.DataPoint)) {
@@ -50,14 +53,17 @@ func (f *Fanout) RemoveConsumer(id int) {
 }
 
 func (f *Fanout) Publish(msg models.DataPoint) {
-	// First try to queue the message
-	f.pending <- msg
+	// Allocate new DataPoint on heap
+	newMsg := &msg
+	// Atomically store the new message
+	atomic.StorePointer(&f.pending, unsafe.Pointer(newMsg))
 
-	// Get message once
-	message := <-f.pending
+	// Get latest message
+	ptr := atomic.LoadPointer(&f.pending)
+	message := (*models.DataPoint)(ptr)
 
-	// Then process it synchronously for all consumers
+	// Process synchronously for all consumers
 	for _, c := range f.GetConsumers() {
-		c.Callback(message)
+		c.Callback(*message)
 	}
 }

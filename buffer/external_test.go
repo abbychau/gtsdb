@@ -225,6 +225,166 @@ func TestReadDataPointsEmptyResult(t *testing.T) {
 	}
 }
 
+func TestStoreDataPointBufferExceedingCacheSize(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Set small cache size
+	cacheSize = 3
+
+	// Test data - more points than cache size
+	now := time.Now().Unix()
+	points := []models.DataPoint{
+		{Key: "TestCacheOverflow", Timestamp: now, Value: 1.0},
+		{Key: "TestCacheOverflow", Timestamp: now + 1, Value: 2.0},
+		{Key: "TestCacheOverflow", Timestamp: now + 2, Value: 3.0},
+		{Key: "TestCacheOverflow", Timestamp: now + 3, Value: 4.0},
+		{Key: "TestCacheOverflow", Timestamp: now + 4, Value: 5.0},
+	}
+
+	// Store points
+	for _, point := range points {
+		StoreDataPointBuffer(point)
+	}
+
+	// Test 1: Verify ring buffer respects cache size
+	rb, ok := idToRingBufferMap.Load("TestCacheOverflow")
+	if !ok {
+		t.Error("Expected ring buffer to be created for key")
+	}
+	if rb.Size() != cacheSize {
+		t.Errorf("Expected ring buffer size to be %d (cacheSize), got %d", cacheSize, rb.Size())
+	}
+
+	// Test 2: Verify all points were stored on disk despite cache overflow
+	storedPoints := ReadLastDataPoints("TestCacheOverflow", len(points))
+	if len(storedPoints) != len(points) {
+		t.Errorf("Expected %d points on disk, got %d", len(points), len(storedPoints))
+	}
+
+	// Verify points are in correct order and have correct values
+	for i, point := range points {
+		if storedPoints[i].Value != point.Value {
+			t.Errorf("Expected value %f at position %d, got %f", point.Value, i, storedPoints[i].Value)
+		}
+		if storedPoints[i].Timestamp != point.Timestamp {
+			t.Errorf("Expected timestamp %d at position %d, got %d", point.Timestamp, i, storedPoints[i].Timestamp)
+		}
+	}
+
+	// Test 3: Verify lastValue and lastTimestamp have latest values
+	lastVal, ok := lastValue.Load("TestCacheOverflow")
+	if !ok || lastVal != points[len(points)-1].Value {
+		t.Errorf("Expected lastValue to be %f, got %v", points[len(points)-1].Value, lastVal)
+	}
+	lastTs, ok := lastTimestamp.Load("TestCacheOverflow")
+	if !ok || lastTs != points[len(points)-1].Timestamp {
+		t.Errorf("Expected lastTimestamp to be %d, got %v", points[len(points)-1].Timestamp, lastTs)
+	}
+}
+
+func TestStoreDataPointBufferWithNonZeroCacheMultiplePoints(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Set non-zero cache size
+	cacheSize = 5
+
+	// Test data - multiple points
+	now := time.Now().Unix()
+	points := []models.DataPoint{
+		{Key: "TestMultiCache", Timestamp: now, Value: 1.0},
+		{Key: "TestMultiCache", Timestamp: now + 1, Value: 2.0},
+		{Key: "TestMultiCache", Timestamp: now + 2, Value: 3.0},
+	}
+
+	// Store multiple data points
+	for _, point := range points {
+		StoreDataPointBuffer(point)
+	}
+
+	// Test 1: Verify all points are in ring buffer
+	rb, ok := idToRingBufferMap.Load("TestMultiCache")
+	if !ok {
+		t.Error("Expected ring buffer to be created for key")
+	}
+	if rb.Size() != len(points) {
+		t.Errorf("Expected %d points in ring buffer, got %d", len(points), rb.Size())
+	}
+
+	// Test 2: Verify all points were stored on disk
+	storedPoints := ReadLastDataPoints("TestMultiCache", len(points))
+	if len(storedPoints) != len(points) {
+		t.Errorf("Expected %d points, got %d", len(points), len(storedPoints))
+	}
+
+	// Verify points are in correct order and have correct values
+	for i, point := range points {
+		if storedPoints[i].Value != point.Value {
+			t.Errorf("Expected value %f at position %d, got %f", point.Value, i, storedPoints[i].Value)
+		}
+		if storedPoints[i].Timestamp != point.Timestamp {
+			t.Errorf("Expected timestamp %d at position %d, got %d", point.Timestamp, i, storedPoints[i].Timestamp)
+		}
+	}
+
+	// Test 3: Verify lastValue and lastTimestamp have latest values
+	lastVal, ok := lastValue.Load("TestMultiCache")
+	if !ok || lastVal != points[len(points)-1].Value {
+		t.Errorf("Expected lastValue to be %f, got %v", points[len(points)-1].Value, lastVal)
+	}
+	lastTs, ok := lastTimestamp.Load("TestMultiCache")
+	if !ok || lastTs != points[len(points)-1].Timestamp {
+		t.Errorf("Expected lastTimestamp to be %d, got %v", points[len(points)-1].Timestamp, lastTs)
+	}
+}
+
+func TestStoreDataPointBufferWithNonZeroCache(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Set non-zero cache size
+	cacheSize = 10
+
+	// Test data
+	dataPoint := models.DataPoint{
+		Key:       "TestNonZeroCache",
+		Timestamp: time.Now().Unix(),
+		Value:     42.5,
+	}
+
+	// Store the data point
+	StoreDataPointBuffer(dataPoint)
+
+	// Test 1: Verify data was stored in ring buffer
+	rb, ok := idToRingBufferMap.Load(dataPoint.Key)
+	if !ok {
+		t.Error("Expected ring buffer to be created for key")
+	}
+	if rb.Size() != 1 {
+		t.Errorf("Expected 1 point in ring buffer, got %d", rb.Size())
+	}
+
+	// Test 2: Verify data was stored on disk by reading it back
+	points := ReadLastDataPoints("TestNonZeroCache", 1)
+	if len(points) != 1 {
+		t.Errorf("Expected 1 point, got %d", len(points))
+	}
+	if points[0].Value != dataPoint.Value {
+		t.Errorf("Expected value %f, got %f", dataPoint.Value, points[0].Value)
+	}
+
+	// Test 3: Verify lastValue and lastTimestamp were updated
+	lastVal, ok := lastValue.Load(dataPoint.Key)
+	if !ok || lastVal != dataPoint.Value {
+		t.Errorf("Expected lastValue to be %f, got %v", dataPoint.Value, lastVal)
+	}
+	lastTs, ok := lastTimestamp.Load(dataPoint.Key)
+	if !ok || lastTs != dataPoint.Timestamp {
+		t.Errorf("Expected lastTimestamp to be %d, got %v", dataPoint.Timestamp, lastTs)
+	}
+}
+
 func TestStoreDataPointBufferWithZeroCache(t *testing.T) {
 	cleanup()
 	defer cleanup()

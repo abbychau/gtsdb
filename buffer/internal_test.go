@@ -241,6 +241,35 @@ func TestBufferedDataPoints(t *testing.T) {
 func TestReadLastBufferedDataPoints(t *testing.T) {
 	id := "TestReadLastBufferedDataPoints"
 
+	t.Run("last timestamp exists", func(t *testing.T) {
+		testId := "test-last-value"
+		expectedTimestamp := int64(1234567)
+		expectedValue := 42.0
+
+		lastTimestamp.Store(testId, expectedTimestamp)
+		lastValue.Store(testId, expectedValue)
+
+		points := readLastBufferedDataPoints(testId, 1)
+
+		if len(points) != 1 {
+			t.Errorf("Expected 1 point, got %d points", len(points))
+		}
+		if len(points) > 0 {
+			if points[0].Timestamp != expectedTimestamp {
+				t.Errorf("Expected timestamp %d, got %d", expectedTimestamp, points[0].Timestamp)
+			}
+			if points[0].Value != expectedValue {
+				t.Errorf("Expected value %f, got %f", expectedValue, points[0].Value)
+			}
+			if points[0].Key != testId {
+				t.Errorf("Expected key %s, got %s", testId, points[0].Key)
+			}
+		}
+
+		lastTimestamp.Delete(testId)
+		lastValue.Delete(testId)
+	})
+
 	t.Run("map load not ok", func(t *testing.T) {
 		points := readLastBufferedDataPoints("nonexistent", 1)
 		if len(points) != 0 {
