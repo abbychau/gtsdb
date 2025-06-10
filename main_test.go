@@ -85,7 +85,7 @@ func TestGracefulShutdown(t *testing.T) {
 }
 
 func TestTCPServerInitialization(t *testing.T) {
-	utils.TcpListenAddr = "localhost:5555"
+	utils.TcpListenAddr = "localhost:55555"
 	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
 	stop := make(chan struct{})
 
@@ -128,7 +128,7 @@ func TestTCPServerWithInvalidAddress(t *testing.T) {
 }
 
 func TestHTTPServerInitialization(t *testing.T) {
-	utils.HttpListenAddr = "localhost:5556"
+	utils.HttpListenAddr = "localhost:55556"
 	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
 	stop := make(chan struct{})
 

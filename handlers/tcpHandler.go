@@ -3,6 +3,7 @@ package handlers
 import (
 	"bufio"
 	"encoding/json"
+	"gtsdb/buffer"
 	"gtsdb/fanout"
 	"gtsdb/models"
 	"gtsdb/utils"
@@ -58,6 +59,15 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
 				continue
 			}
+
+			// If since is provided, send historical data first
+			if op.Since > 0 {
+				historicalData := buffer.ReadDataPoints(op.Key, op.Since, time.Now().Unix(), 0, "")
+				for _, point := range historicalData {
+					json.NewEncoder(conn).Encode(Response{Success: true, Data: point})
+				}
+			}
+
 			subscribingDevices = append(subscribingDevices, op.Key)
 			if len(subscribingDevices) == 1 {
 				utils.Log("Adding consumer %d %v", id, subscribingDevices)

@@ -11,7 +11,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	utils.DataDir = "../data"
+	utils.DataDir = "data"
 	// Setup
 	err := os.MkdirAll(utils.DataDir, 0755)
 	if err != nil {

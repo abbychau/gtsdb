@@ -6,3 +6,5 @@ testdata/*
 gtsdb.exe
 gtsdb.exe~
 gtsdb.ini
+buffer/data/*
+mydata/*

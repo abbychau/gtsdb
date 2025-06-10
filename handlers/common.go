@@ -30,7 +30,8 @@ type Operation struct {
 	Key       string        `json:"key,omitempty"`
 	ToKey     string        `json:"tokey,omitempty"`
 	Keys      []string      `json:"keys,omitempty"`
-	Data      string        `json:"data,omitempty"` // CSV data for patch operation
+	Data      string        `json:"data,omitempty"`  // CSV data for patch operation
+	Since     int64         `json:"since,omitempty"` // Optional timestamp for subscribe operation
 }
 
 type Response struct {
