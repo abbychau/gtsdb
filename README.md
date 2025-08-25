@@ -1,5 +1,8 @@
 # Golang Dead Simple Timeseries Database
 
+<img width="768" height="768" alt="image" src="https://github.com/user-attachments/assets/1eb70120-4748-443f-b358-0bad20b43004" />
+
+
 [![coverage](/docs/coverage.png)](./docs/coverage-full.png)
 
 ## Introduction
