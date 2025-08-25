@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gtsdb/buffer/external.go (95.0%)</option>
+				<option value="file0">gtsdb/buffer/external.go (94.9%)</option>
 				
 				<option value="file1">gtsdb/buffer/internal.go (92.4%)</option>
 				
@@ -282,10 +282,9 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) <span class="cov
 }
 
 func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint <span class="cov8" title="1">{
-        utils.Log("Reading data points for %v", id)
+
         dataPoints := readBufferedDataPoints(id, startTime, endTime)
         if len(dataPoints) == 0 </span><span class="cov8" title="1">{
-                utils.Log("No buffered data points found for %v", id)
                 dataPoints = readFiledDataPoints(id, startTime, endTime)
         }</span>
 

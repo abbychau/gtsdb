@@ -110,11 +110,9 @@ func HandleOperation(op Operation) Response {
 		utils.Log("Read request: %v", op.Read)
 		var response []models.DataPoint
 		var readQueryParams ReadRequest
-		if op.Read.LastX > 0 || (op.Read.StartTime == 0 && op.Read.EndTime == 0) {
+		if op.Read.LastX > 0 {
+			// Use lastx when explicitly specified
 			last := op.Read.LastX
-			if last == 0 {
-				last = 1
-			}
 			if last < 0 {
 				last = last * -1
 			}
@@ -122,9 +120,9 @@ func HandleOperation(op Operation) Response {
 				LastX:       last,
 				Aggregation: op.Read.Aggregation,
 			}
-
 			response = buffer.ReadLastDataPoints(op.Key, last)
-		} else {
+		} else if op.Read.StartTime > 0 && op.Read.EndTime > 0 {
+			// Use timestamp range when both start and end times are provided
 			readQueryParams = ReadRequest{
 				StartTime:   op.Read.StartTime,
 				EndTime:     op.Read.EndTime,
@@ -132,6 +130,13 @@ func HandleOperation(op Operation) Response {
 				Aggregation: op.Read.Aggregation,
 			}
 			response = buffer.ReadDataPoints(op.Key, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
+		} else {
+			// Default to last 1 when no specific parameters are provided
+			readQueryParams = ReadRequest{
+				LastX:       1,
+				Aggregation: op.Read.Aggregation,
+			}
+			response = buffer.ReadLastDataPoints(op.Key, 1)
 		}
 		return Response{
 			Success:         true,
@@ -160,17 +165,19 @@ func HandleOperation(op Operation) Response {
 		result := make(map[string][]models.DataPoint)
 		for _, key := range op.Keys {
 			var response []models.DataPoint
-			if op.Read.LastX > 0 || (op.Read.StartTime == 0 && op.Read.EndTime == 0) {
+			if op.Read.LastX > 0 {
+				// Use lastx when explicitly specified
 				last := op.Read.LastX
-				if last == 0 {
-					last = 1
-				}
 				if last < 0 {
 					last = last * -1
 				}
 				response = buffer.ReadLastDataPoints(key, last)
-			} else {
+			} else if op.Read.StartTime > 0 && op.Read.EndTime > 0 {
+				// Use timestamp range when both start and end times are provided
 				response = buffer.ReadDataPoints(key, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
+			} else {
+				// Default to last 1 when no specific parameters are provided
+				response = buffer.ReadLastDataPoints(key, 1)
 			}
 			result[key] = response
 		}
