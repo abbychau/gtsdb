@@ -80,8 +80,28 @@ func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.F
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	file := prepareFileHandles(id+".aof", dataFileHandles)
 
-	_, err := file.Seek(int64(-16*count), io.SeekEnd)
+	// Get file size and calculate actual record count
+	fileInfo, err := file.Stat()
 	if err != nil {
+		utils.Error("Error getting file info: %v", err)
+		return nil, err
+	}
+	fileSize := fileInfo.Size()
+	
+	// Ensure file size is aligned to 16-byte records
+	actualRecordCount := fileSize / 16
+	if count > int(actualRecordCount) {
+		count = int(actualRecordCount)
+	}
+	
+	// Calculate proper aligned position from the start of valid records
+	alignedFileSize := actualRecordCount * 16
+	seekOffset := int64(count * 16)
+	seekPosition := alignedFileSize - seekOffset
+	
+	_, err = file.Seek(seekPosition, io.SeekStart)
+	if err != nil {
+		utils.Error("Error seeking to position %d: %v", seekPosition, err)
 		file.Seek(0, io.SeekStart)
 	}
 	

@@ -140,7 +140,7 @@ func HandleOperation(op Operation) Response {
 		}
 		
 		// Log first record of the response
-		if len(response) > 0 {
+		if len(response) > 0 && response[0].Key != "" {
 			utils.Log("Read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
 		} else {
 			utils.Log("Read response: no records found for key=%s", op.Key)
@@ -189,7 +189,7 @@ func HandleOperation(op Operation) Response {
 			}
 			
 			// Log first record of the response for each key
-			if len(response) > 0 {
+			if len(response) > 0 && response[0].Key != "" {
 				utils.Log("Multi-read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
 			} else {
 				utils.Log("Multi-read response: no records found for key=%s", key)
