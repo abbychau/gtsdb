@@ -138,6 +138,14 @@ func HandleOperation(op Operation) Response {
 			}
 			response = buffer.ReadLastDataPoints(op.Key, 1)
 		}
+		
+		// Log first record of the response
+		if len(response) > 0 {
+			utils.Log("Read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
+		} else {
+			utils.Log("Read response: no records found for key=%s", op.Key)
+		}
+		
 		return Response{
 			Success:         true,
 			Data:            response,
@@ -179,6 +187,14 @@ func HandleOperation(op Operation) Response {
 				// Default to last 1 when no specific parameters are provided
 				response = buffer.ReadLastDataPoints(key, 1)
 			}
+			
+			// Log first record of the response for each key
+			if len(response) > 0 {
+				utils.Log("Multi-read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
+			} else {
+				utils.Log("Multi-read response: no records found for key=%s", key)
+			}
+			
 			result[key] = response
 		}
 
