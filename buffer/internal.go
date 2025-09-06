@@ -68,7 +68,7 @@ func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.F
 				}
 				fileLength := fileInfo.Size()
 				count := &atomic.Int64{}
-				count.Store(fileLength / 26)
+				count.Store(fileLength / 16)
 				idToCountMap.Store(fileName[:len(fileName)-4], count)
 			}
 		}
@@ -79,12 +79,13 @@ func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.F
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	file := prepareFileHandles(id+".aof", dataFileHandles)
-	reader := bufio.NewReader(file)
 
 	_, err := file.Seek(int64(-16*count), io.SeekEnd)
 	if err != nil {
 		file.Seek(0, io.SeekStart)
 	}
+	
+	reader := bufio.NewReader(file)
 
 	var dataPoints []models.DataPoint
 	for {
