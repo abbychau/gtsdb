@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
-	"unsafe"
 )
 
 func writeBinary(file *os.File, data ...interface{}) {
@@ -121,23 +120,6 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 			return nil, err
 		}
 
-		// Validate timestamp range - check for corrupted data
-		// Allow test data (low timestamps) but catch clearly corrupted data
-		if timestamp > 4000000000 || (timestamp < 0 && timestamp != 0) {
-			// Check if this is a swapped record (VALUE-TIMESTAMP instead of TIMESTAMP-VALUE)
-			valueAsInt := *(*int64)(unsafe.Pointer(&value))
-			if valueAsInt >= 1600000000 && valueAsInt <= 4000000000 {
-				// The bytes are in wrong positions: first 8 bytes are actually the value, second 8 are timestamp
-				actualValue := *(*float64)(unsafe.Pointer(&timestamp))  // timestamp bytes are actually the value
-				actualTimestamp := valueAsInt                           // value bytes are actually the timestamp
-				// Corruption detected and fixed silently
-				timestamp, value = actualTimestamp, actualValue
-			} else {
-				// Skip completely corrupted records
-				continue
-			}
-		}
-
 		dataPoints = append(dataPoints, models.DataPoint{
 			Key:       id,
 			Timestamp: timestamp,
@@ -212,23 +194,6 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 			}
 			utils.Error("Error reading file: %v", err)
 			return nil
-		}
-
-		// Validate timestamp range - check for corrupted data
-		// Allow test data (low timestamps) but catch clearly corrupted data
-		if timestamp > 4000000000 || (timestamp < 0 && timestamp != 0) {
-			// Check if this is a swapped record (VALUE-TIMESTAMP instead of TIMESTAMP-VALUE)
-			valueAsInt := *(*int64)(unsafe.Pointer(&value))
-			if valueAsInt >= 1600000000 && valueAsInt <= 4000000000 {
-				// The bytes are in wrong positions: first 8 bytes are actually the value, second 8 are timestamp
-				actualValue := *(*float64)(unsafe.Pointer(&timestamp))  // timestamp bytes are actually the value
-				actualTimestamp := valueAsInt                           // value bytes are actually the timestamp
-				// Corruption detected and fixed silently
-				timestamp, value = actualTimestamp, actualValue
-			} else {
-				// Skip completely corrupted records
-				continue
-			}
 		}
 
 		if timestamp > endTime {
