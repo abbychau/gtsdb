@@ -197,8 +197,28 @@ func analyzeFile(key string, repair bool, writeFixed bool) (corrupted bool, proc
 		
 		processed++
 		
-		// Apply the same corruption detection logic
+		// Apply enhanced corruption detection logic
+		corrupted_detected := false
+		
+		// Check 1: Obviously bad timestamps
 		if timestamp > 4000000000 || (timestamp < 0 && timestamp != 0) {
+			corrupted_detected = true
+		}
+		
+		// Check 2: Suspicious value patterns (many 1.0 values likely indicate VALUE-TIMESTAMP swaps)
+		if !corrupted_detected && value == 1.0 {
+			// Check if timestamp, when interpreted as float64, gives a reasonable sensor value
+			timestampAsFloat := *(*float64)(unsafe.Pointer(&timestamp))
+			if timestampAsFloat > 0.0 && timestampAsFloat < 100.0 { // Reasonable temperature range
+				corrupted_detected = true
+				if !repair {
+					fmt.Printf("    Detected likely VALUE-TIMESTAMP swap: ts=%d val=%f (ts as float=%.6f)\n", 
+						timestamp, value, timestampAsFloat)
+				}
+			}
+		}
+		
+		if corrupted_detected {
 			valueAsInt := *(*int64)(unsafe.Pointer(&value))
 			if valueAsInt >= 1600000000 && valueAsInt <= 4000000000 {
 				// This is a swapped record
