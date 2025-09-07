@@ -12,3 +12,8 @@ lint:
 	golangci-lint run
 lint-fix:
 	golangci-lint run --fix
+deploy:
+	git pull
+	pm2 stop 0
+	go build .
+	pm2 start pm2.config.json
