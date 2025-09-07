@@ -8,3 +8,5 @@ gtsdb.exe~
 gtsdb.ini
 buffer/data/*
 mydata/*
+data/*.backup.*
+data/*.manual_backup.*
