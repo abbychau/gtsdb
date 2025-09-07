@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"unsafe"
 )
 
 func writeBinary(file *os.File, data ...interface{}) {
@@ -120,6 +121,20 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 			return nil, err
 		}
 
+		// Validate timestamp range - check for corrupted data
+		// Allow test data (low timestamps) but catch clearly corrupted data
+		if timestamp > 4000000000 || (timestamp < 0 && timestamp != 0) {
+			// Check if timestamp and value are swapped by treating value bits as int64
+			valueAsInt := *(*int64)(unsafe.Pointer(&value))
+			if valueAsInt >= 1600000000 && valueAsInt <= 4000000000 {
+				// Swap them back
+				timestamp, value = valueAsInt, *(*float64)(unsafe.Pointer(&timestamp))
+			} else {
+				// Skip completely corrupted records
+				continue
+			}
+		}
+
 		dataPoints = append(dataPoints, models.DataPoint{
 			Key:       id,
 			Timestamp: timestamp,
@@ -194,6 +209,20 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 			}
 			utils.Error("Error reading file: %v", err)
 			return nil
+		}
+
+		// Validate timestamp range - check for corrupted data
+		// Allow test data (low timestamps) but catch clearly corrupted data
+		if timestamp > 4000000000 || (timestamp < 0 && timestamp != 0) {
+			// Check if timestamp and value are swapped by treating value bits as int64
+			valueAsInt := *(*int64)(unsafe.Pointer(&value))
+			if valueAsInt >= 1600000000 && valueAsInt <= 4000000000 {
+				// Swap them back
+				timestamp, value = valueAsInt, *(*float64)(unsafe.Pointer(&timestamp))
+			} else {
+				// Skip completely corrupted records
+				continue
+			}
 		}
 
 		if timestamp > endTime {
