@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -32,10 +33,16 @@ func readBinary(reader io.Reader, data ...interface{}) error {
 }
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
+	lock, _ := fileWriteLocks.LoadOrStore(dataPointId, &sync.Mutex{})
+	lock.Lock()
+	defer lock.Unlock()
+	
+	
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
 		writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value)
+		dataFile.Sync() // Force immediate write to disk
 
 		countValue, _ := idToCountMap.Load(dataPointId)
 		count := countValue

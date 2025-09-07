@@ -25,3 +25,4 @@ var lastTimestamp = concurrent.NewMap[string, int64]()
 // mutex
 var renameLock sync.Mutex
 var dataPatchLocks = concurrent.NewMap[string, *sync.Mutex]()
+var fileWriteLocks = concurrent.NewMap[string, *sync.Mutex]()
