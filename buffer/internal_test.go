@@ -540,3 +540,172 @@ func TestPatchDataPointsConcurrent(t *testing.T) {
 		}
 	}
 }
+
+
+func TestInitFileHandles(t *testing.T) {
+	// Save original values
+	originalCapacity := utils.FileHandleLRUCapacity
+	originalDataHandles := dataFileHandles
+	originalIndexHandles := indexFileHandles
+	
+	// Cleanup after test
+	defer func() {
+		utils.FileHandleLRUCapacity = originalCapacity
+		dataFileHandles = originalDataHandles
+		indexFileHandles = originalIndexHandles
+	}()
+	
+	t.Run("InitFileHandles with default capacity", func(t *testing.T) {
+		// Set test capacity
+		utils.FileHandleLRUCapacity = 100
+		
+		// Initialize
+		InitFileHandles()
+		
+		// Verify handles are created
+		if dataFileHandles == nil {
+			t.Error("expected dataFileHandles to be initialized")
+		}
+		if indexFileHandles == nil {
+			t.Error("expected indexFileHandles to be initialized")
+		}
+		
+		// Test that we can use the handles
+		// Create a temporary file for testing
+		tmpFile, err := os.CreateTemp("", "test_*.tmp")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+		
+		// Store file in LRU
+		dataFileHandles.Put("test", tmpFile)
+		
+		// Retrieve and verify
+		if retrievedFile, found := dataFileHandles.Get("test"); !found || retrievedFile != tmpFile {
+			t.Error("expected to retrieve the same file from LRU")
+		}
+		
+		// Test LRU length
+		if dataFileHandles.Len() != 1 {
+			t.Errorf("expected LRU length 1, got %d", dataFileHandles.Len())
+		}
+	})
+	
+	t.Run("InitFileHandles with custom capacity", func(t *testing.T) {
+		// Set custom capacity
+		utils.FileHandleLRUCapacity = 50
+		
+		// Initialize
+		InitFileHandles()
+		
+		// Test capacity by filling it
+		for i := 0; i < 60; i++ {
+			tmpFile, err := os.CreateTemp("", "test_*.tmp")
+			if err != nil {
+				t.Fatalf("failed to create temp file %d: %v", i, err)
+			}
+			defer os.Remove(tmpFile.Name())
+			defer tmpFile.Close()
+			
+			dataFileHandles.Put(tmpFile.Name(), tmpFile)
+		}
+		
+		// Should not exceed capacity due to LRU eviction
+		if dataFileHandles.Len() > 50 {
+			t.Errorf("expected LRU to respect capacity of 50, got length %d", dataFileHandles.Len())
+		}
+	})
+	
+	t.Run("InitFileHandles eviction callback", func(t *testing.T) {
+		utils.FileHandleLRUCapacity = 2
+		
+		// Initialize
+		InitFileHandles()
+		
+		// Create test files
+		file1, err := os.CreateTemp("", "evict_test1_*.tmp")
+		if err != nil {
+			t.Fatalf("failed to create temp file 1: %v", err)
+		}
+		defer os.Remove(file1.Name())
+		
+		file2, err := os.CreateTemp("", "evict_test2_*.tmp")
+		if err != nil {
+			t.Fatalf("failed to create temp file 2: %v", err)
+		}
+		defer os.Remove(file2.Name())
+		
+		file3, err := os.CreateTemp("", "evict_test3_*.tmp")
+		if err != nil {
+			t.Fatalf("failed to create temp file 3: %v", err)
+		}
+		defer os.Remove(file3.Name())
+		
+		// Add files to LRU
+		dataFileHandles.Put("file1", file1)
+		dataFileHandles.Put("file2", file2)
+		
+		// Verify files are not closed yet
+		if file1.Name() == "" || file2.Name() == "" {
+			t.Error("files should not be closed yet")
+		}
+		
+		// Add third file, should trigger eviction of file1
+		dataFileHandles.Put("file3", file3)
+		
+		// Should have exactly 2 files in cache
+		if dataFileHandles.Len() != 2 {
+			t.Errorf("expected LRU length 2 after eviction, got %d", dataFileHandles.Len())
+		}
+		
+		// file1 should be evicted (and closed by callback)
+		if _, found := dataFileHandles.Get("file1"); found {
+			t.Error("expected file1 to be evicted from LRU")
+		}
+		
+		// file2 and file3 should still be present
+		if _, found := dataFileHandles.Get("file2"); !found {
+			t.Error("expected file2 to still be in LRU")
+		}
+		if _, found := dataFileHandles.Get("file3"); !found {
+			t.Error("expected file3 to be in LRU")
+		}
+		
+		// Close remaining files manually to clean up
+		file2.Close()
+		file3.Close()
+	})
+	
+	t.Run("InitFileHandles with nil file in eviction callback", func(t *testing.T) {
+		utils.FileHandleLRUCapacity = 1
+		
+		// Initialize
+		InitFileHandles()
+		
+		// Test eviction callback with nil file (should not panic)
+		dataFileHandles.Put("nil_test", nil)
+		
+		// Create a real file to trigger eviction of nil
+		tmpFile, err := os.CreateTemp("", "real_file_*.tmp")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+		
+		// This should evict the nil file without panicking
+		dataFileHandles.Put("real_file", tmpFile)
+		
+		// Verify the real file is in cache
+		if _, found := dataFileHandles.Get("real_file"); !found {
+			t.Error("expected real_file to be in LRU")
+		}
+		
+		// Verify nil file was evicted
+		if _, found := dataFileHandles.Get("nil_test"); found {
+			t.Error("expected nil_test to be evicted")
+		}
+	})
+}

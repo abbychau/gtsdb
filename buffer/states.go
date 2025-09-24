@@ -4,7 +4,6 @@ import (
 	"gtsdb/concurrent"
 	"gtsdb/models"
 	"gtsdb/synchronous"
-	"gtsdb/utils"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -30,21 +29,3 @@ var renameLock sync.Mutex
 var dataPatchLocks = concurrent.NewMap[string, *sync.Mutex]()
 var fileWriteLocks = concurrent.NewMap[string, *sync.Mutex]()
 
-// InitFileHandles initializes the file handle LRUs with the configured capacity
-func InitFileHandles() {
-	capacity := utils.FileHandleLRUCapacity
-	
-	dataFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
-		if f != nil {
-			f.Close()
-		}
-	})
-	
-	indexFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
-		if f != nil {
-			f.Close()
-		}
-	})
-	
-	utils.Logln("初始化文件句柄LRU，容量：", capacity)
-}

@@ -57,9 +57,9 @@
 				
 				<option value="file0">gtsdb/buffer/external.go (94.9%)</option>
 				
-				<option value="file1">gtsdb/buffer/internal.go (92.4%)</option>
+				<option value="file1">gtsdb/buffer/internal.go (90.3%)</option>
 				
-				<option value="file2">gtsdb/concurrent/lru.go (100.0%)</option>
+				<option value="file2">gtsdb/concurrent/lru.go (97.5%)</option>
 				
 				<option value="file3">gtsdb/concurrent/map.go (100.0%)</option>
 				
@@ -67,7 +67,7 @@
 				
 				<option value="file5">gtsdb/fanout/fanout.go (100.0%)</option>
 				
-				<option value="file6">gtsdb/main.go (86.2%)</option>
+				<option value="file6">gtsdb/main.go (84.1%)</option>
 				
 				<option value="file7">gtsdb/synchronous/ringbuffer.go (100.0%)</option>
 				
@@ -139,11 +139,11 @@ func RenameKey(dataPointId, newId string) <span class="cov8" title="1">{
         newIfk := newId + ".idx"
 
         // Close and remove old file handles
-        if dfh, ok := dataFileHandles.Load(dfk); ok </span><span class="cov8" title="1">{
+        if dfh, ok := dataFileHandles.Get(dfk); ok </span><span class="cov8" title="1">{
                 dfh.Close()
                 dataFileHandles.Delete(dfk)
         }</span>
-        <span class="cov8" title="1">if ifh, ok := indexFileHandles.Load(ifk); ok </span><span class="cov8" title="1">{
+        <span class="cov8" title="1">if ifh, ok := indexFileHandles.Get(ifk); ok </span><span class="cov8" title="1">{
                 ifh.Close()
                 indexFileHandles.Delete(ifk)
         }</span>
@@ -175,9 +175,9 @@ func DeleteKey(dataPointId string) <span class="cov8" title="1">{
         ifk := dataPointId + ".idx"
 
         //close file handles
-        dfh, _ := dataFileHandles.Load(dfk)
+        dfh, _ := dataFileHandles.Get(dfk)
         dfh.Close()
-        ifh, _ := indexFileHandles.Load(ifk)
+        ifh, _ := indexFileHandles.Get(ifk)
         ifh.Close()
 
         dataFileHandles.Delete(dfk)
@@ -377,6 +377,7 @@ import (
         "io"
         "os"
         "strings"
+        "sync"
         "sync/atomic"
 )
 
@@ -400,10 +401,16 @@ func readBinary(reader io.Reader, data ...interface{}) error <span class="cov8" 
 }
 
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span class="cov8" title="1">{
+        lock, _ := fileWriteLocks.LoadOrStore(dataPointId, &amp;sync.Mutex{})
+        lock.Lock()
+        defer lock.Unlock()
+    
+    
         dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
         indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
         for _, dataPoint := range dataPoints </span><span class="cov8" title="1">{
                 writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value)
+                dataFile.Sync() // Force immediate write to disk
 
                 countValue, _ := idToCountMap.Load(dataPointId)
                 count := countValue
@@ -417,44 +424,63 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) <span cl
         }
 }
 
-func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.File]) *os.File <span class="cov8" title="1">{
-        fileInterface, ok := handleMap.Load(fileName)
-        if !ok </span><span class="cov8" title="1">{
-                var err error
-                file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-                if err != nil </span><span class="cov8" title="1">{
-                        utils.Panic(err)
-                }</span>
-                <span class="cov8" title="1">handleMap.Store(fileName, file)
+func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.File]) *os.File <span class="cov8" title="1">{
+        if file, ok := handleMap.Get(fileName); ok </span><span class="cov8" title="1">{
+                return file
+        }</span>
 
-                if strings.HasSuffix(fileName, ".aof") </span><span class="cov8" title="1">{
-                        _, ok := idToCountMap.Load(fileName[:len(fileName)-4])
-                        if !ok </span><span class="cov8" title="1">{
-                                fileInfo, err := file.Stat()
-                                if err != nil </span><span class="cov0" title="0">{
-                                        utils.Panic(err)
-                                }</span>
-                                <span class="cov8" title="1">fileLength := fileInfo.Size()
-                                count := &amp;atomic.Int64{}
-                                count.Store(fileLength / 26)
-                                idToCountMap.Store(fileName[:len(fileName)-4], count)</span>
-                        }
+        <span class="cov8" title="1">file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+        if err != nil </span><span class="cov8" title="1">{
+                utils.Panic(err)
+        }</span>
+        <span class="cov8" title="1">handleMap.Put(fileName, file)
+
+        if strings.HasSuffix(fileName, ".aof") </span><span class="cov8" title="1">{
+                if _, ok := idToCountMap.Load(fileName[:len(fileName)-4]); !ok </span><span class="cov8" title="1">{
+                        fileInfo, err := file.Stat()
+                        if err != nil </span><span class="cov0" title="0">{
+                                utils.Panic(err)
+                        }</span>
+                        <span class="cov8" title="1">fileLength := fileInfo.Size()
+                        count := &amp;atomic.Int64{}
+                        count.Store(fileLength / 16)
+                        idToCountMap.Store(fileName[:len(fileName)-4], count)</span>
                 }
-                <span class="cov8" title="1">return file</span>
         }
-        <span class="cov8" title="1">return fileInterface</span>
+        <span class="cov8" title="1">return file</span>
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) <span class="cov8" title="1">{
         file := prepareFileHandles(id+".aof", dataFileHandles)
-        reader := bufio.NewReader(file)
 
-        _, err := file.Seek(int64(-16*count), io.SeekEnd)
-        if err != nil </span><span class="cov8" title="1">{
+        // Get file size and calculate actual record count
+        fileInfo, err := file.Stat()
+        if err != nil </span><span class="cov0" title="0">{
+                utils.Error("Error getting file info: %v", err)
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">fileSize := fileInfo.Size()
+        
+        // Ensure file size is aligned to 16-byte records
+        actualRecordCount := fileSize / 16
+        if count &gt; int(actualRecordCount) </span><span class="cov8" title="1">{
+                count = int(actualRecordCount)
+        }</span>
+        
+        // Calculate proper aligned position from the start of valid records
+        <span class="cov8" title="1">alignedFileSize := actualRecordCount * 16
+        seekOffset := int64(count * 16)
+        seekPosition := alignedFileSize - seekOffset
+        
+        _, err = file.Seek(seekPosition, io.SeekStart)
+        if err != nil </span><span class="cov0" title="0">{
+                utils.Error("Error seeking to position %d: %v", seekPosition, err)
                 file.Seek(0, io.SeekStart)
         }</span>
+        
+        <span class="cov8" title="1">reader := bufio.NewReader(file)
 
-        <span class="cov8" title="1">var dataPoints []models.DataPoint
+        var dataPoints []models.DataPoint
         for </span><span class="cov8" title="1">{
                 var timestamp int64
                 var value float64
@@ -487,7 +513,7 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
         reader := bufio.NewReader(file)
 
         indexFilename := id + ".idx"
-        indexFileInterface, ok := indexFileHandles.Load(indexFilename)
+        indexFileInterface, ok := indexFileHandles.Get(indexFilename)
         if ok </span><span class="cov8" title="1">{
                 indexFile := indexFileInterface
                 indexReader := bufio.NewReader(indexFile)
@@ -703,6 +729,25 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 
         <span class="cov8" title="1">return downsampled</span>
 }
+
+// InitFileHandles initializes the file handle LRUs with the configured capacity
+func InitFileHandles() <span class="cov8" title="1">{
+        capacity := utils.FileHandleLRUCapacity
+        
+        dataFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) </span><span class="cov8" title="1">{
+                if f != nil </span><span class="cov8" title="1">{
+                        f.Close()
+                }</span>
+        })
+        
+        <span class="cov8" title="1">indexFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) </span><span class="cov0" title="0">{
+                if f != nil </span><span class="cov0" title="0">{
+                        f.Close()
+                }</span>
+        })
+        
+        <span class="cov8" title="1">utils.Logln("Handle LRU 容量：", capacity)</span>
+}
 </pre>
 		
 		<pre class="file" id="file2" style="display: none">package concurrent
@@ -721,17 +766,37 @@ type LRU[K comparable, V any] struct {
         head     *Node[K, V]
         tail     *Node[K, V]
         mutex    sync.Mutex
+        onEvicted func(K, V)
 }
 
 func NewLRU[K comparable, V any](capacity int) *LRU[K, V] <span class="cov8" title="1">{
-        return &amp;LRU[K, V]{
+        if capacity &lt; 1 </span><span class="cov8" title="1">{
+                capacity = 1
+        }</span>
+        <span class="cov8" title="1">return &amp;LRU[K, V]{
                 capacity: capacity,
                 cache:    make(map[K]*Node[K, V]),
                 head:     nil,
                 tail:     nil,
                 mutex:    sync.Mutex{},
-        }
-}</span>
+                onEvicted: nil,
+        }</span>
+}
+
+// NewLRUWithEvict creates an LRU with an eviction callback
+func NewLRUWithEvict[K comparable, V any](capacity int, onEvicted func(K, V)) *LRU[K, V] <span class="cov8" title="1">{
+        if capacity &lt; 1 </span><span class="cov8" title="1">{
+                capacity = 1
+        }</span>
+        <span class="cov8" title="1">return &amp;LRU[K, V]{
+                capacity:  capacity,
+                cache:     make(map[K]*Node[K, V]),
+                head:      nil,
+                tail:      nil,
+                mutex:     sync.Mutex{},
+                onEvicted: onEvicted,
+        }</span>
+}
 
 func (l *LRU[K, V]) Get(key K) (V, bool) <span class="cov8" title="1">{
         l.mutex.Lock()
@@ -768,10 +833,25 @@ func (l *LRU[K, V]) Put(key K, value V) <span class="cov8" title="1">{
         }</span>
 
         <span class="cov8" title="1">if len(l.cache) &gt; l.capacity </span><span class="cov8" title="1">{
-                delete(l.cache, l.tail.key)
-                l.tail = l.tail.prev
-                l.tail.next = nil
-        }</span>
+                // Evict least recently used (tail)
+                evicted := l.tail
+                // unlink
+                if l.head == l.tail </span><span class="cov0" title="0">{
+                        // single element
+                        l.head = nil
+                        l.tail = nil
+                }</span> else<span class="cov8" title="1"> {
+                        l.tail = evicted.prev
+                        if l.tail != nil </span><span class="cov8" title="1">{
+                                l.tail.next = nil
+                        }</span>
+                        <span class="cov8" title="1">evicted.prev = nil</span>
+                }
+                <span class="cov8" title="1">delete(l.cache, evicted.key)
+                if l.onEvicted != nil </span><span class="cov8" title="1">{
+                        l.onEvicted(evicted.key, evicted.value)
+                }</span>
+        }
 }
 
 func (l *LRU[K, V]) moveToFront(node *Node[K, V]) <span class="cov8" title="1">{
@@ -781,16 +861,24 @@ func (l *LRU[K, V]) moveToFront(node *Node[K, V]) <span class="cov8" title="1">{
 
         <span class="cov8" title="1">if node == l.tail </span><span class="cov8" title="1">{
                 l.tail = node.prev
-                l.tail.next = nil
-        }</span> else<span class="cov8" title="1"> {
-                node.prev.next = node.next
-                node.next.prev = node.prev
-        }</span>
+                if l.tail != nil </span><span class="cov8" title="1">{
+                        l.tail.next = nil
+                }</span>
+        } else<span class="cov8" title="1"> {
+                if node.prev != nil </span><span class="cov8" title="1">{
+                        node.prev.next = node.next
+                }</span>
+                <span class="cov8" title="1">if node.next != nil </span><span class="cov8" title="1">{
+                        node.next.prev = node.prev
+                }</span>
+        }
 
         <span class="cov8" title="1">node.prev = nil
         node.next = l.head
-        l.head.prev = node
-        l.head = node</span>
+        if l.head != nil </span><span class="cov8" title="1">{
+                l.head.prev = node
+        }</span>
+        <span class="cov8" title="1">l.head = node</span>
 }
 
 func (l *LRU[K, V]) Len() int <span class="cov8" title="1">{
@@ -798,6 +886,52 @@ func (l *LRU[K, V]) Len() int <span class="cov8" title="1">{
         defer l.mutex.Unlock()
         return len(l.cache)
 }</span>
+
+// Delete removes a key from the cache (no eviction callback)
+func (l *LRU[K, V]) Delete(key K) <span class="cov8" title="1">{
+        l.mutex.Lock()
+        defer l.mutex.Unlock()
+
+        node, exists := l.cache[key]
+        if !exists </span><span class="cov8" title="1">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">switch </span>{
+        case node == l.head &amp;&amp; node == l.tail:<span class="cov8" title="1">
+                l.head = nil
+                l.tail = nil</span>
+        case node == l.head:<span class="cov8" title="1">
+                l.head = node.next
+                if l.head != nil </span><span class="cov8" title="1">{
+                        l.head.prev = nil
+                }</span>
+        case node == l.tail:<span class="cov8" title="1">
+                l.tail = node.prev
+                if l.tail != nil </span><span class="cov8" title="1">{
+                        l.tail.next = nil
+                }</span>
+        default:<span class="cov8" title="1">
+                if node.prev != nil </span><span class="cov8" title="1">{
+                        node.prev.next = node.next
+                }</span>
+                <span class="cov8" title="1">if node.next != nil </span><span class="cov8" title="1">{
+                        node.next.prev = node.prev
+                }</span>
+        }
+        <span class="cov8" title="1">delete(l.cache, key)</span>
+}
+
+// Range iterates over the cache items (unordered)
+func (l *LRU[K, V]) Range(f func(key K, value V) bool) <span class="cov8" title="1">{
+        l.mutex.Lock()
+        defer l.mutex.Unlock()
+        for k, n := range l.cache </span><span class="cov8" title="1">{
+                if !f(k, n.value) </span><span class="cov8" title="1">{
+                        break</span>
+                }
+        }
+}
 </pre>
 		
 		<pre class="file" id="file3" style="display: none">package concurrent
@@ -1154,12 +1288,21 @@ func loadConfig(iniFile string) <span class="cov8" title="1">{
                 utils.TcpListenAddr = cfg.Section("listens").Key("tcp").String()
                 utils.HttpListenAddr = cfg.Section("listens").Key("http").String()
                 utils.DataDir = cfg.Section("paths").Key("data").String()
-        }</span>
+                
+                // Load file handle LRU capacity (optional, defaults to 700)
+                if capacityStr := cfg.Section("buffer").Key("file_handle_lru_capacity").String(); capacityStr != "" </span><span class="cov0" title="0">{
+                        if capacity := cfg.Section("buffer").Key("file_handle_lru_capacity").MustInt(700); capacity &gt; 0 </span><span class="cov0" title="0">{
+                                utils.FileHandleLRUCapacity = capacity
+                        }</span>
+                }
+        }
 
         <span class="cov8" title="1">utils.Logln(" TCP 監聽地址： ", utils.TcpListenAddr)
         utils.Logln("HTTP 監聽地址： ", utils.HttpListenAddr)
         utils.Logln(" 數據存儲目錄： ", utils.DataDir)
+        utils.Logln("文件句柄LRU容量： ", utils.FileHandleLRUCapacity)
 
+        buffer.InitFileHandles()
         buffer.InitIDSet()
 
         utils.Log("📊 我們現在有 %d 組時序", len(buffer.GetAllIds()))</span>
@@ -1234,9 +1377,10 @@ import (
 )
 
 var (
-        TcpListenAddr  = ":5555"
-        HttpListenAddr = ":5556"
-        DataDir        = "data"
+        TcpListenAddr        = ":5555"
+        HttpListenAddr       = ":5556"
+        DataDir              = "data"
+        FileHandleLRUCapacity = 700
 )
 
 func dateString() string <span class="cov8" title="1">{

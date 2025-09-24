@@ -361,3 +361,22 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 
 	return downsampled
 }
+
+// InitFileHandles initializes the file handle LRUs with the configured capacity
+func InitFileHandles() {
+	capacity := utils.FileHandleLRUCapacity
+	
+	dataFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
+		if f != nil {
+			f.Close()
+		}
+	})
+	
+	indexFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
+		if f != nil {
+			f.Close()
+		}
+	})
+	
+	utils.Logln("Handle LRU 容量：", capacity)
+}
