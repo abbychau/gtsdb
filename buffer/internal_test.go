@@ -17,6 +17,9 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	
+	// Initialize file handles
+	InitFileHandles()
 
 	// Run tests
 	code := m.Run()

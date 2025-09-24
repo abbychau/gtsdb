@@ -106,12 +106,21 @@ func loadConfig(iniFile string) {
 		utils.TcpListenAddr = cfg.Section("listens").Key("tcp").String()
 		utils.HttpListenAddr = cfg.Section("listens").Key("http").String()
 		utils.DataDir = cfg.Section("paths").Key("data").String()
+		
+		// Load file handle LRU capacity (optional, defaults to 700)
+		if capacityStr := cfg.Section("buffer").Key("file_handle_lru_capacity").String(); capacityStr != "" {
+			if capacity := cfg.Section("buffer").Key("file_handle_lru_capacity").MustInt(700); capacity > 0 {
+				utils.FileHandleLRUCapacity = capacity
+			}
+		}
 	}
 
 	utils.Logln(" TCP 監聽地址： ", utils.TcpListenAddr)
 	utils.Logln("HTTP 監聽地址： ", utils.HttpListenAddr)
 	utils.Logln(" 數據存儲目錄： ", utils.DataDir)
+	utils.Logln("文件句柄LRU容量： ", utils.FileHandleLRUCapacity)
 
+	buffer.InitFileHandles()
 	buffer.InitIDSet()
 
 	utils.Log("📊 我們現在有 %d 組時序", len(buffer.GetAllIds()))

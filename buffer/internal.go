@@ -36,8 +36,8 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	lock, _ := fileWriteLocks.LoadOrStore(dataPointId, &sync.Mutex{})
 	lock.Lock()
 	defer lock.Unlock()
-	
-	
+    
+    
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
@@ -56,32 +56,30 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	}
 }
 
-func prepareFileHandles(fileName string, handleMap *concurrent.Map[string, *os.File]) *os.File {
-	fileInterface, ok := handleMap.Load(fileName)
-	if !ok {
-		var err error
-		file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-		if err != nil {
-			utils.Panic(err)
-		}
-		handleMap.Store(fileName, file)
-
-		if strings.HasSuffix(fileName, ".aof") {
-			_, ok := idToCountMap.Load(fileName[:len(fileName)-4])
-			if !ok {
-				fileInfo, err := file.Stat()
-				if err != nil {
-					utils.Panic(err)
-				}
-				fileLength := fileInfo.Size()
-				count := &atomic.Int64{}
-				count.Store(fileLength / 16)
-				idToCountMap.Store(fileName[:len(fileName)-4], count)
-			}
-		}
+func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.File]) *os.File {
+	if file, ok := handleMap.Get(fileName); ok {
 		return file
 	}
-	return fileInterface
+
+	file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		utils.Panic(err)
+	}
+	handleMap.Put(fileName, file)
+
+	if strings.HasSuffix(fileName, ".aof") {
+		if _, ok := idToCountMap.Load(fileName[:len(fileName)-4]); !ok {
+			fileInfo, err := file.Stat()
+			if err != nil {
+				utils.Panic(err)
+			}
+			fileLength := fileInfo.Size()
+			count := &atomic.Int64{}
+			count.Store(fileLength / 16)
+			idToCountMap.Store(fileName[:len(fileName)-4], count)
+		}
+	}
+	return file
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
@@ -147,7 +145,7 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 	reader := bufio.NewReader(file)
 
 	indexFilename := id + ".idx"
-	indexFileInterface, ok := indexFileHandles.Load(indexFilename)
+	indexFileInterface, ok := indexFileHandles.Get(indexFilename)
 	if ok {
 		indexFile := indexFileInterface
 		indexReader := bufio.NewReader(indexFile)

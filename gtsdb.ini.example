@@ -5,3 +5,9 @@ data = data
 http = 127.0.0.1:5556
 tcp = 127.0.0.1:5555
 
+[buffer]
+; File handle LRU capacity (optional, default: 700)
+; Controls how many file handles can be open simultaneously
+; Lower values use less system resources but may impact performance
+; file_handle_lru_capacity = 700
+

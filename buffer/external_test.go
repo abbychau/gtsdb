@@ -18,6 +18,11 @@ func cleanup() {
 	for _, file := range files {
 		os.Remove(utils.DataDir + "/" + file.Name())
 	}
+	
+	// Initialize file handles if not already initialized
+	if dataFileHandles == nil || indexFileHandles == nil {
+		InitFileHandles()
+	}
 }
 
 func TestStoreAndReadDataPoints(t *testing.T) {

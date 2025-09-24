@@ -52,11 +52,11 @@ func RenameKey(dataPointId, newId string) {
 	newIfk := newId + ".idx"
 
 	// Close and remove old file handles
-	if dfh, ok := dataFileHandles.Load(dfk); ok {
+	if dfh, ok := dataFileHandles.Get(dfk); ok {
 		dfh.Close()
 		dataFileHandles.Delete(dfk)
 	}
-	if ifh, ok := indexFileHandles.Load(ifk); ok {
+	if ifh, ok := indexFileHandles.Get(ifk); ok {
 		ifh.Close()
 		indexFileHandles.Delete(ifk)
 	}
@@ -88,9 +88,9 @@ func DeleteKey(dataPointId string) {
 	ifk := dataPointId + ".idx"
 
 	//close file handles
-	dfh, _ := dataFileHandles.Load(dfk)
+	dfh, _ := dataFileHandles.Get(dfk)
 	dfh.Close()
-	ifh, _ := indexFileHandles.Load(ifk)
+	ifh, _ := indexFileHandles.Get(ifk)
 	ifh.Close()
 
 	dataFileHandles.Delete(dfk)

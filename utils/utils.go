@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	TcpListenAddr  = ":5555"
-	HttpListenAddr = ":5556"
-	DataDir        = "data"
+	TcpListenAddr        = ":5555"
+	HttpListenAddr       = ":5556"
+	DataDir              = "data"
+	FileHandleLRUCapacity = 700
 )
 
 func dateString() string {
