@@ -192,6 +192,10 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 	// write merged data points to file
 	storeDataPoints(key, mergedDataPoints) // this will also rebuild the index file
 
+	//add key back to allIds
+	allIds.Add(key)
+	lastValue.Store(key, mergedDataPoints[len(mergedDataPoints)-1].Value)
+	lastTimestamp.Store(key, mergedDataPoints[len(mergedDataPoints)-1].Timestamp)
 }
 
 func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {
