@@ -8,6 +8,7 @@ import (
 	"gtsdb/utils"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,8 +37,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	lock, _ := fileWriteLocks.LoadOrStore(dataPointId, &sync.Mutex{})
 	lock.Lock()
 	defer lock.Unlock()
-    
-    
+
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
@@ -61,7 +61,15 @@ func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.F
 		return file
 	}
 
-	file, err := os.OpenFile(utils.DataDir+"/"+fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	fullPath := utils.DataDir + "/" + fileName
+	dir := filepath.Dir(fullPath)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			utils.Panic(err)
+		}
+	}
+
+	file, err := os.OpenFile(fullPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		utils.Panic(err)
 	}
@@ -92,24 +100,24 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 		return nil, err
 	}
 	fileSize := fileInfo.Size()
-	
+
 	// Ensure file size is aligned to 16-byte records
 	actualRecordCount := fileSize / 16
 	if count > int(actualRecordCount) {
 		count = int(actualRecordCount)
 	}
-	
+
 	// Calculate proper aligned position from the start of valid records
 	alignedFileSize := actualRecordCount * 16
 	seekOffset := int64(count * 16)
 	seekPosition := alignedFileSize - seekOffset
-	
+
 	_, err = file.Seek(seekPosition, io.SeekStart)
 	if err != nil {
 		utils.Error("Error seeking to position %d: %v", seekPosition, err)
 		file.Seek(0, io.SeekStart)
 	}
-	
+
 	reader := bufio.NewReader(file)
 
 	var dataPoints []models.DataPoint
@@ -365,18 +373,18 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 // InitFileHandles initializes the file handle LRUs with the configured capacity
 func InitFileHandles() {
 	capacity := utils.FileHandleLRUCapacity
-	
+
 	dataFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
 		if f != nil {
 			f.Close()
 		}
 	})
-	
+
 	indexFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
 		if f != nil {
 			f.Close()
 		}
 	})
-	
+
 	utils.Logln("Handle LRU 容量：", capacity)
 }

@@ -11,3 +11,12 @@ tcp = 127.0.0.1:5555
 ; Lower values use less system resources but may impact performance
 ; file_handle_lru_capacity = 700
 
+[auth]
+; User to use when no authentication is provided (optional, default: empty)
+; If set (e.g. "root"), unauthenticated requests will be treated as this user
+; no_auth_user = root
+
+; Fixed token for the root user (optional)
+; If set, the root user will always have this token
+; root_token = your-secret-token
+

@@ -1,5 +1,4 @@
 //go:build ignore
-// +build ignore
 
 package main
 
@@ -11,7 +10,7 @@ import (
 
 func main() {
 	utils.DataDir = "data"
-	
+
 	// Test the updated file
 	readOp := handlers.Operation{
 		Operation: "read",
@@ -20,12 +19,12 @@ func main() {
 			LastX: 20,
 		},
 	}
-	
+
 	resp := handlers.HandleOperation(readOp)
 	if resp.Success {
 		data := resp.Data.([]models.DataPoint)
 		utils.Log("Checking updated file - %d records:", len(data))
-		
+
 		suspiciousCount := 0
 		for i, dp := range data {
 			if dp.Value == 1.0 {
@@ -38,9 +37,9 @@ func main() {
 				}
 			}
 		}
-		
+
 		utils.Log("Records with value=1.0: %d out of %d", suspiciousCount, len(data))
-		
+
 		// Check file size and record count
 		utils.Log("File info:")
 		utils.Log("  Size: 590,336 bytes")

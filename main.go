@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"gtsdb/auth"
 	"gtsdb/buffer"
 	"gtsdb/fanout"
 	"gtsdb/handlers"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/ini.v1"
@@ -32,6 +35,8 @@ func main() {
 func run(configFile string) {
 	loadConfig(configFile)
 	utils.InitDataDirectory()
+	migrateData()
+	auth.Init(utils.DataDir)
 	fanoutManager := fanout.NewFanout(100000) // Buffer size of 1000 for production use
 
 	// Create stop channels
@@ -106,7 +111,9 @@ func loadConfig(iniFile string) {
 		utils.TcpListenAddr = cfg.Section("listens").Key("tcp").String()
 		utils.HttpListenAddr = cfg.Section("listens").Key("http").String()
 		utils.DataDir = cfg.Section("paths").Key("data").String()
-		
+		utils.NoAuthUser = cfg.Section("auth").Key("no_auth_user").String()
+		utils.RootToken = cfg.Section("auth").Key("root_token").String()
+
 		// Load file handle LRU capacity (optional, defaults to 700)
 		if capacityStr := cfg.Section("buffer").Key("file_handle_lru_capacity").String(); capacityStr != "" {
 			if capacity := cfg.Section("buffer").Key("file_handle_lru_capacity").MustInt(700); capacity > 0 {
@@ -130,4 +137,50 @@ func gracefulShutdown() {
 	utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
 	buffer.FlushRemainingDataPoints()
 	utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
+}
+
+func migrateData() {
+	// Check if there are any .aof or .idx files in the root of DataDir
+	files, err := os.ReadDir(utils.DataDir)
+	if err != nil {
+		utils.Errorln("Error reading data directory for migration:", err)
+		return
+	}
+
+	foundFiles := false
+	for _, file := range files {
+		if !file.IsDir() && (strings.HasSuffix(file.Name(), ".aof") || strings.HasSuffix(file.Name(), ".idx")) {
+			foundFiles = true
+			break
+		}
+	}
+
+	if !foundFiles {
+		return
+	}
+
+	targetUser := utils.NoAuthUser
+	if targetUser == "" {
+		targetUser = "root"
+	}
+
+	targetDir := filepath.Join(utils.DataDir, targetUser)
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			utils.Errorln("Error creating migration directory:", err)
+			return
+		}
+	}
+
+	utils.Logln("Migrating existing data to user:", targetUser)
+
+	for _, file := range files {
+		if !file.IsDir() && (strings.HasSuffix(file.Name(), ".aof") || strings.HasSuffix(file.Name(), ".idx")) {
+			oldPath := filepath.Join(utils.DataDir, file.Name())
+			newPath := filepath.Join(targetDir, file.Name())
+			if err := os.Rename(oldPath, newPath); err != nil {
+				utils.Errorln("Error moving file:", file.Name(), err)
+			}
+		}
+	}
 }

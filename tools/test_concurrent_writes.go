@@ -1,29 +1,28 @@
 //go:build ignore
-// +build ignore
 
 package main
 
 import (
 	"fmt"
-	"sync"
-	"time"
 	"gtsdb/handlers"
 	"gtsdb/models"
 	"gtsdb/utils"
+	"sync"
+	"time"
 )
 
 func main() {
 	utils.DataDir = "data"
-	
+
 	key := "concurrent_test"
 	numGoroutines := 10
 	writesPerGoroutine := 100
-	
+
 	fmt.Printf("Testing concurrent writes: %d goroutines, %d writes each\n", numGoroutines, writesPerGoroutine)
-	
+
 	var wg sync.WaitGroup
 	startTime := time.Now().Unix()
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
@@ -33,7 +32,7 @@ func main() {
 					Operation: "write",
 					Key:       key,
 					Write: &handlers.WriteRequest{
-						Timestamp: startTime + int64(goroutineID*1000 + j),
+						Timestamp: startTime + int64(goroutineID*1000+j),
 						Value:     float64(goroutineID) + float64(j)/100.0,
 					},
 				}
@@ -41,10 +40,10 @@ func main() {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 	fmt.Println("All writes completed")
-	
+
 	// Read back data to check for corruption
 	readOp := handlers.Operation{
 		Operation: "read",
@@ -53,12 +52,12 @@ func main() {
 			LastX: numGoroutines * writesPerGoroutine,
 		},
 	}
-	
+
 	resp := handlers.HandleOperation(readOp)
 	if resp.Success {
 		data := resp.Data.([]models.DataPoint)
 		fmt.Printf("Successfully read %d records\n", len(data))
-		
+
 		// Check for suspicious values (1.0 indicates corruption)
 		suspiciousCount := 0
 		for _, dp := range data {
@@ -66,7 +65,7 @@ func main() {
 				suspiciousCount++
 			}
 		}
-		
+
 		if suspiciousCount > 0 {
 			fmt.Printf("⚠️  Found %d suspicious records with value=1.0 (potential corruption)\n", suspiciousCount)
 		} else {

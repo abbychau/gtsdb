@@ -8,25 +8,34 @@ import (
 	"gtsdb/utils"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 )
 
 func InitIDSet() {
-	// Read all the files in the data directory
-	files, err := os.ReadDir(utils.DataDir)
-	if err != nil {
-		utils.InitDataDirectory()
-		return
-	}
-	for _, file := range files {
-		if strings.HasSuffix(file.Name(), ".aof") {
-			id := file.Name()[:len(file.Name())-4]
+	// Read all the files in the data directory recursively
+	err := filepath.WalkDir(utils.DataDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".aof") {
+			relPath, err := filepath.Rel(utils.DataDir, path)
+			if err != nil {
+				return err
+			}
+			id := relPath[:len(relPath)-4]
 			if id != "" {
 				allIds.Add(id)
 			}
 		}
+		return nil
+	})
+
+	if err != nil {
+		utils.InitDataDirectory()
+		return
 	}
 }
 

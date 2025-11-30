@@ -10,3 +10,7 @@ buffer/data/*
 mydata/*
 data/*.backup.*
 data/*.manual_backup.*
+data/users.json
+data/**/*.aof
+data/**/*.idx
+logs/gtsdb*
