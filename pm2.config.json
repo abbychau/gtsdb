@@ -3,9 +3,12 @@
         {
             "name"       : "gtsdb",
             "script"     : "./gtsdb",
+            "args"       : ["mygtsdb.ini"],
             "exec_interpreter": "none",
             "exec_mode"  : "fork_mode",
-            "watch"      : false
+            "watch"      : false,
+            "error_file": "./logs/gtsdb_err.log",
+            "out_file"  : "./logs/gtsdb_out.log"
         }
     ]
 }

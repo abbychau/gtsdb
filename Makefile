@@ -14,6 +14,7 @@ lint-fix:
 	golangci-lint run --fix
 deploy:
 	git pull
-	pm2 stop 0
+	pm2 del gtsdb
 	go build .
 	pm2 start pm2.config.json
+	pm2 save
