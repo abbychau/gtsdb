@@ -25,8 +25,8 @@ type IndexEntry struct {
 
 func main() {
 	// December 8th, 2025 00:00:00 UTC to December 12th, 2025 23:59:59 UTC
-	startTime := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC).Unix()
-	endTime := time.Date(2025, 12, 5, 23, 59, 59, 0, time.UTC).Unix()
+	startTime := time.Date(2026, 4, 9, 6, 0, 0, 0, time.UTC).Unix()
+	endTime := time.Date(2026, 4, 13, 13, 10, 0, 0, time.UTC).Unix()
 
 	seriesIDs := []string{
 		// "vertriqe_25416_cttp",
@@ -51,19 +51,20 @@ func main() {
 
 		//25253+25255+25256+25233+25257+25258
 
-		"vertriqe_25253_cttp",
-		"vertriqe_25255_cttp",
-		"vertriqe_25256_cttp",
-		"vertriqe_25233_cttp",
-		"vertriqe_25257_cttp",
-		"vertriqe_25258_cttp",
+		"vertriqe_25522_cttp",
+		"vertriqe_25523_cttp",
+		"vertriqe_25524_cttp",
+		"vertriqe_25525_cttp",
+		"vertriqe_25526_cttp",
+		"vertriqe_25527_cttp",
 	}
 
-	dataDir := "data"
-
-	fmt.Printf("Removing data points from %s to %s\n",
-		time.Unix(startTime, 0).Format("2006-01-02 15:04:05"),
-		time.Unix(endTime, 0).Format("2006-01-02 15:04:05"))
+	dataDir, err := resolveDataDir("mydata/root")
+	if err != nil {
+		fmt.Printf("Failed to resolve data directory: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Using data directory: %s\n", dataDir)
 
 	for _, seriesID := range seriesIDs {
 		fmt.Printf("\nProcessing series: %s\n", seriesID)
@@ -276,4 +277,32 @@ func copyFile(src, dst string) error {
 	}
 
 	return destFile.Sync()
+}
+
+func resolveDataDir(dataDir string) (string, error) {
+	if filepath.IsAbs(dataDir) {
+		if info, err := os.Stat(dataDir); err == nil && info.IsDir() {
+			return dataDir, nil
+		}
+		return "", fmt.Errorf("absolute data directory %q does not exist", dataDir)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, dataDir)
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+
+	return "", fmt.Errorf("could not find %q from %q or any parent directory", dataDir, wd)
 }

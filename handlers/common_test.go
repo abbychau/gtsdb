@@ -108,12 +108,12 @@ func TestHandleOperation(t *testing.T) {
 		// Write test data with specific timestamps
 		testKey := "test_timestamp_range"
 		baseTime := time.Now().Unix() - 300 // 5 minutes ago
-		
+
 		// Write 5 data points over 4 minutes
 		timestamps := []int64{
-			baseTime,      // 5 minutes ago
-			baseTime + 60, // 4 minutes ago
-			baseTime + 120, // 3 minutes ago  
+			baseTime,       // 5 minutes ago
+			baseTime + 60,  // 4 minutes ago
+			baseTime + 120, // 3 minutes ago
 			baseTime + 180, // 2 minutes ago
 			baseTime + 240, // 1 minute ago
 		}
@@ -141,7 +141,7 @@ func TestHandleOperation(t *testing.T) {
 			Read: &ReadRequest{
 				StartTime:   baseTime + 60,  // 4 minutes ago
 				EndTime:     baseTime + 180, // 2 minutes ago
-				Downsample: 1,
+				Downsample:  1,
 				Aggregation: "avg",
 			},
 		}
@@ -173,7 +173,7 @@ func TestHandleOperation(t *testing.T) {
 		// Verify timestamps are within range
 		for _, point := range data {
 			if point.Timestamp < baseTime+60 || point.Timestamp > baseTime+180 {
-				t.Errorf("Data point timestamp %d is outside expected range [%d, %d]", 
+				t.Errorf("Data point timestamp %d is outside expected range [%d, %d]",
 					point.Timestamp, baseTime+60, baseTime+180)
 			}
 		}
@@ -194,7 +194,7 @@ func TestHandleOperation(t *testing.T) {
 		// Write test data for multiple keys
 		testKeys := []string{"multi_test_1", "multi_test_2"}
 		baseTime := time.Now().Unix() - 200
-		
+
 		for keyIndex, testKey := range testKeys {
 			for i := 0; i < 3; i++ {
 				op := Operation{
@@ -202,7 +202,7 @@ func TestHandleOperation(t *testing.T) {
 					Key:       testKey,
 					Write: &WriteRequest{
 						Value:     float64((keyIndex+1)*10 + i), // multi_test_1: 10,11,12; multi_test_2: 20,21,22
-						Timestamp: baseTime + int64(i*60),      // timestamps 60 seconds apart
+						Timestamp: baseTime + int64(i*60),       // timestamps 60 seconds apart
 					},
 				}
 				resp := HandleOperation(op)
@@ -217,10 +217,10 @@ func TestHandleOperation(t *testing.T) {
 			Operation: "multi-read",
 			Keys:      testKeys,
 			Read: &ReadRequest{
-				StartTime:    baseTime,
-				EndTime:      baseTime + 120,
-				Downsample: 1,
-				Aggregation:  "avg",
+				StartTime:   baseTime,
+				EndTime:     baseTime + 120,
+				Downsample:  1,
+				Aggregation: "avg",
 			},
 		}
 
@@ -265,6 +265,76 @@ func TestHandleOperation(t *testing.T) {
 		resp := HandleOperation(op)
 		if !resp.Success {
 			t.Errorf("Flush operation failed: %s", resp.Message)
+		}
+	})
+
+	t.Run("DeleteDataPointForValue Operation", func(t *testing.T) {
+		testKey := "delete_by_value_test"
+		baseTime := time.Now().Unix()
+
+		for i, value := range []float64{1.0, 2.0, 3.0, 4.0} {
+			resp := HandleOperation(Operation{
+				Operation: "write",
+				Key:       testKey,
+				Write: &WriteRequest{
+					Value:     value,
+					Timestamp: baseTime + int64(i),
+				},
+			})
+			if !resp.Success {
+				t.Fatalf("Failed to write test data: %s", resp.Message)
+			}
+		}
+
+		resp := HandleOperation(Operation{
+			Operation: "deleteDataPointForValue",
+			Key:       testKey,
+			Payload: &DeleteDataPointForValueRequest{
+				Operator: ">",
+				Value:    2.0,
+			},
+		})
+		if !resp.Success {
+			t.Fatalf("DeleteDataPointForValue failed: %s", resp.Message)
+		}
+
+		readResp := HandleOperation(Operation{
+			Operation: "read",
+			Key:       testKey,
+			Read: &ReadRequest{
+				StartTime: baseTime,
+				EndTime:   baseTime + 10,
+			},
+		})
+		if !readResp.Success {
+			t.Fatalf("Read after delete failed: %s", readResp.Message)
+		}
+
+		data, ok := readResp.Data.([]models.DataPoint)
+		if !ok {
+			t.Fatal("Invalid response data type")
+		}
+		if len(data) != 2 {
+			t.Fatalf("Expected 2 remaining data points, got %d", len(data))
+		}
+		for _, point := range data {
+			if point.Value > 2.0 {
+				t.Errorf("Expected only values <= 2.0 to remain, got %f", point.Value)
+			}
+		}
+	})
+
+	t.Run("DeleteDataPointForValue Invalid Operator", func(t *testing.T) {
+		resp := HandleOperation(Operation{
+			Operation: "deleteDataPointForValue",
+			Key:       "delete_by_value_invalid",
+			Payload: &DeleteDataPointForValueRequest{
+				Operator: "=",
+				Value:    2.0,
+			},
+		})
+		if resp.Success {
+			t.Fatal("Expected invalid operator request to fail")
 		}
 	})
 

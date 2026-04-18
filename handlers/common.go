@@ -23,15 +23,21 @@ type ReadRequest struct {
 	Aggregation string `json:"aggregation,omitempty"`
 }
 
+type DeleteDataPointForValueRequest struct {
+	Operator string  `json:"operator"`
+	Value    float64 `json:"value"`
+}
+
 type Operation struct {
-	Operation string        `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "multi-read", "data-patch"
-	Write     *WriteRequest `json:"write,omitempty"`
-	Read      *ReadRequest  `json:"read,omitempty"`
-	Key       string        `json:"key,omitempty"`
-	ToKey     string        `json:"tokey,omitempty"`
-	Keys      []string      `json:"keys,omitempty"`
-	Data      string        `json:"data,omitempty"`  // CSV data for patch operation
-	Since     int64         `json:"since,omitempty"` // Optional timestamp for subscribe operation
+	Operation string                          `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "multi-read", "data-patch", "deleteDataPointForValue"
+	Write     *WriteRequest                   `json:"write,omitempty"`
+	Read      *ReadRequest                    `json:"read,omitempty"`
+	Payload   *DeleteDataPointForValueRequest `json:"payload,omitempty"`
+	Key       string                          `json:"key,omitempty"`
+	ToKey     string                          `json:"tokey,omitempty"`
+	Keys      []string                        `json:"keys,omitempty"`
+	Data      string                          `json:"data,omitempty"`  // CSV data for patch operation
+	Since     int64                           `json:"since,omitempty"` // Optional timestamp for subscribe operation
 }
 
 type Response struct {
@@ -138,14 +144,14 @@ func HandleOperation(op Operation) Response {
 			}
 			response = buffer.ReadLastDataPoints(op.Key, 1)
 		}
-		
+
 		// Log first record of the response
 		if len(response) > 0 && response[0].Key != "" {
 			utils.Log("Read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
 		} else {
 			utils.Log("Read response: no records found for key=%s", op.Key)
 		}
-		
+
 		return Response{
 			Success:         true,
 			Data:            response,
@@ -187,14 +193,14 @@ func HandleOperation(op Operation) Response {
 				// Default to last 1 when no specific parameters are provided
 				response = buffer.ReadLastDataPoints(key, 1)
 			}
-			
+
 			// Log first record of the response for each key
 			if len(response) > 0 && response[0].Key != "" {
 				utils.Log("Multi-read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
 			} else {
 				utils.Log("Multi-read response: no records found for key=%s", key)
 			}
-			
+
 			result[key] = response
 		}
 
@@ -249,6 +255,19 @@ func HandleOperation(op Operation) Response {
 		buffer.PatchDataPoints(points, op.Key)
 
 		return Response{Success: true, Message: fmt.Sprintf("Patched %d data points", len(points))}
+	case "deletedatapointforvalue":
+		if op.Payload == nil {
+			return Response{Success: false, Message: "Payload required"}
+		}
+		if op.Payload.Operator != ">" && op.Payload.Operator != "<" {
+			return Response{Success: false, Message: "Payload operator must be '>' or '<'"}
+		}
+
+		removedCount := buffer.DeleteDataPointsForValue(op.Key, op.Payload.Operator, op.Payload.Value)
+		return Response{
+			Success: true,
+			Message: fmt.Sprintf("Removed %d data points and patched data", removedCount),
+		}
 
 	default:
 		return Response{Success: false, Message: "Invalid operation"}

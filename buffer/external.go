@@ -92,30 +92,41 @@ func RenameKey(dataPointId, newId string) {
 
 func DeleteKey(dataPointId string) {
 	utils.Log("Deleting key: %v", dataPointId)
+	if dataPointId == "" {
+		return
+	}
+
 	renameLock.Lock()
+	defer renameLock.Unlock()
+
 	dfk := dataPointId + ".aof"
 	ifk := dataPointId + ".idx"
 
-	//close file handles
-	dfh, _ := dataFileHandles.Get(dfk)
-	dfh.Close()
-	ifh, _ := indexFileHandles.Get(ifk)
-	ifh.Close()
+	// close file handles if they are open
+	if dfh, ok := dataFileHandles.Get(dfk); ok && dfh != nil {
+		dfh.Close()
+	}
+	if ifh, ok := indexFileHandles.Get(ifk); ok && ifh != nil {
+		ifh.Close()
+	}
 
 	dataFileHandles.Delete(dfk)
 	indexFileHandles.Delete(ifk)
+	idToRingBufferMap.Delete(dataPointId)
+	idToCountMap.Delete(dataPointId)
+	lastValue.Delete(dataPointId)
+	lastTimestamp.Delete(dataPointId)
 	allIds.Remove(dataPointId)
 
-	//delete the file
+	// delete the file
 	err := os.Remove(utils.DataDir + "/" + dfk)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		utils.Errorln(err)
 	}
 	err = os.Remove(utils.DataDir + "/" + ifk)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		utils.Errorln(err)
 	}
-	renameLock.Unlock()
 }
 
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
@@ -195,16 +206,59 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 		existingDataCursor++
 	}
 
-	// remove key
+	rewriteDataPoints(key, mergedDataPoints)
+}
+
+func DeleteDataPointsForValue(key, operator string, value float64) int {
+	if key == "" || (operator != ">" && operator != "<") {
+		return 0
+	}
+
+	lock, _ := dataPatchLocks.LoadOrStore(key, &sync.Mutex{})
+	lock.Lock()
+	defer lock.Unlock()
+
+	if !allIds.Contains(key) {
+		return 0
+	}
+
+	existingDataPoints := readFiledDataPoints(key, 0, math.MaxInt64)
+	if len(existingDataPoints) == 0 {
+		return 0
+	}
+
+	filteredDataPoints := make([]models.DataPoint, 0, len(existingDataPoints))
+	removedCount := 0
+
+	for _, dataPoint := range existingDataPoints {
+		shouldDelete := (operator == ">" && dataPoint.Value > value) || (operator == "<" && dataPoint.Value < value)
+		if shouldDelete {
+			removedCount++
+			continue
+		}
+		filteredDataPoints = append(filteredDataPoints, dataPoint)
+	}
+
+	if removedCount == 0 {
+		return 0
+	}
+
+	rewriteDataPoints(key, filteredDataPoints)
+	return removedCount
+}
+
+func rewriteDataPoints(key string, dataPoints []models.DataPoint) {
 	DeleteKey(key)
 
-	// write merged data points to file
-	storeDataPoints(key, mergedDataPoints) // this will also rebuild the index file
+	if len(dataPoints) == 0 {
+		return
+	}
 
-	//add key back to allIds
+	// Rewrite the full dataset so the on-disk data stays consistent after patching.
+	storeDataPoints(key, dataPoints)
 	allIds.Add(key)
-	lastValue.Store(key, mergedDataPoints[len(mergedDataPoints)-1].Value)
-	lastTimestamp.Store(key, mergedDataPoints[len(mergedDataPoints)-1].Timestamp)
+	lastValue.Store(key, dataPoints[len(dataPoints)-1].Value)
+	lastTimestamp.Store(key, dataPoints[len(dataPoints)-1].Timestamp)
 }
 
 func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggregation string) []models.DataPoint {

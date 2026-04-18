@@ -102,6 +102,17 @@ go build .
     "key": "sensor1",
     "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"
 }
+
+# Delete data points for a key by value and auto-patch the data file
+# POST /
+{
+    "operation": "deleteDataPointForValue",
+    "key": "sensor1",
+    "payload": {
+        "operator": ">",
+        "value": 100
+    }
+}
 ```
 
 ## Performance
