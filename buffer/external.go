@@ -252,7 +252,7 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 	rewriteDataPoints(key, mergedDataPoints)
 }
 
-func DeleteDataPointsForValue(key, operator string, value float64) int {
+func DeleteDataPoints(key, operator string, value float64, timestampFrom, timestampTo int64) int {
 	if key == "" || (operator != ">" && operator != "<") {
 		return 0
 	}
@@ -274,7 +274,15 @@ func DeleteDataPointsForValue(key, operator string, value float64) int {
 	removedCount := 0
 
 	for _, dataPoint := range existingDataPoints {
-		shouldDelete := (operator == ">" && dataPoint.Value > value) || (operator == "<" && dataPoint.Value < value)
+		inTimeRange := true
+		if timestampFrom > 0 && dataPoint.Timestamp < timestampFrom {
+			inTimeRange = false
+		}
+		if timestampTo > 0 && dataPoint.Timestamp > timestampTo {
+			inTimeRange = false
+		}
+		shouldDeleteByValue := (operator == ">" && dataPoint.Value > value) || (operator == "<" && dataPoint.Value < value)
+		shouldDelete := inTimeRange && shouldDeleteByValue
 		if shouldDelete {
 			removedCount++
 			continue

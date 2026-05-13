@@ -136,15 +136,17 @@ Content-Type: application/json
     "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"
 }
 
-### Delete data points for a key by value
+### Delete data points for a key by value (optionally in timestamp range)
 POST {{hostname}}/
 Content-Type: application/json
 
 {
-    "operation": "deleteDataPointForValue",
+    "operation": "deleteDataPoint",
     "key": "sensor1",
     "payload": {
         "operator": ">",
-        "value": 100
+        "value": 100,
+        "timestampFrom": 1717965210,
+        "timestampTo": 1717965310
     }
 }

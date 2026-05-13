@@ -541,8 +541,8 @@ func TestPatchDataPointsConcurrent(t *testing.T) {
 	}
 }
 
-func TestDeleteDataPointsForValue(t *testing.T) {
-	id := "TestDeleteDataPointsForValue"
+func TestDeleteDataPoints(t *testing.T) {
+	id := "TestDeleteDataPoints"
 	cleanTestFiles(id)
 
 	initialPoints := []models.DataPoint{
@@ -554,7 +554,7 @@ func TestDeleteDataPointsForValue(t *testing.T) {
 	storeDataPoints(id, initialPoints)
 	allIds.Add(id)
 
-	removedCount := DeleteDataPointsForValue(id, ">", 2.5)
+	removedCount := DeleteDataPoints(id, ">", 2.5, 0, 0)
 	if removedCount != 2 {
 		t.Fatalf("Expected 2 removed points, got %d", removedCount)
 	}
@@ -574,8 +574,8 @@ func TestDeleteDataPointsForValue(t *testing.T) {
 	cleanTestFiles(id)
 }
 
-func TestDeleteDataPointsForValueDeletesWholeKey(t *testing.T) {
-	id := "TestDeleteDataPointsForValueDeletesWholeKey"
+func TestDeleteDataPointsDeletesWholeKey(t *testing.T) {
+	id := "TestDeleteDataPointsDeletesWholeKey"
 	cleanTestFiles(id)
 
 	initialPoints := []models.DataPoint{
@@ -585,7 +585,7 @@ func TestDeleteDataPointsForValueDeletesWholeKey(t *testing.T) {
 	storeDataPoints(id, initialPoints)
 	allIds.Add(id)
 
-	removedCount := DeleteDataPointsForValue(id, ">", 5.0)
+	removedCount := DeleteDataPoints(id, ">", 5.0, 0, 0)
 	if removedCount != 2 {
 		t.Fatalf("Expected 2 removed points, got %d", removedCount)
 	}
@@ -595,6 +595,40 @@ func TestDeleteDataPointsForValueDeletesWholeKey(t *testing.T) {
 	}
 	if allIds.Contains(id) {
 		t.Fatalf("Expected key %s to be removed from allIds", id)
+	}
+
+	cleanTestFiles(id)
+}
+
+func TestDeleteDataPointsWithTimestampRange(t *testing.T) {
+	id := "TestDeleteDataPointsWithTimestampRange"
+	cleanTestFiles(id)
+
+	initialPoints := []models.DataPoint{
+		{Key: id, Timestamp: 1000, Value: 1.0},
+		{Key: id, Timestamp: 2000, Value: 2.0},
+		{Key: id, Timestamp: 3000, Value: 3.0},
+		{Key: id, Timestamp: 4000, Value: 4.0},
+	}
+	storeDataPoints(id, initialPoints)
+	allIds.Add(id)
+
+	removedCount := DeleteDataPoints(id, ">", 2.0, 2000, 3000)
+	if removedCount != 1 {
+		t.Fatalf("Expected 1 removed point, got %d", removedCount)
+	}
+
+	result := readFiledDataPoints(id, 0, 5000)
+	if len(result) != 3 {
+		t.Fatalf("Expected 3 points after ranged delete, got %d", len(result))
+	}
+
+	// 3.0 at timestamp 3000 should be removed; 4.0 at 4000 should stay (outside range).
+	expectedValues := []float64{1.0, 2.0, 4.0}
+	for i, point := range result {
+		if point.Value != expectedValues[i] {
+			t.Errorf("Expected value %f at index %d, got %f", expectedValues[i], i, point.Value)
+		}
 	}
 
 	cleanTestFiles(id)
