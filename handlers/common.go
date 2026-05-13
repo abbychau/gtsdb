@@ -23,16 +23,18 @@ type ReadRequest struct {
 	Aggregation string `json:"aggregation,omitempty"`
 }
 
-type DeleteDataPointForValueRequest struct {
-	Operator string  `json:"operator"`
-	Value    float64 `json:"value"`
+type DeleteDataPointRequest struct {
+	Operator      string  `json:"operator"`
+	Value         float64 `json:"value"`
+	TimestampFrom int64   `json:"timestampFrom,omitempty"`
+	TimestampTo   int64   `json:"timestampTo,omitempty"`
 }
 
 type Operation struct {
-	Operation string                          `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "multi-read", "data-patch", "deleteDataPointForValue"
+	Operation string                          `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "multi-read", "data-patch", "deleteDataPoint"
 	Write     *WriteRequest                   `json:"write,omitempty"`
 	Read      *ReadRequest                    `json:"read,omitempty"`
-	Payload   *DeleteDataPointForValueRequest `json:"payload,omitempty"`
+	Payload   *DeleteDataPointRequest         `json:"payload,omitempty"`
 	Key       string                          `json:"key,omitempty"`
 	ToKey     string                          `json:"tokey,omitempty"`
 	Keys      []string                        `json:"keys,omitempty"`
@@ -255,15 +257,18 @@ func HandleOperation(op Operation) Response {
 		buffer.PatchDataPoints(points, op.Key)
 
 		return Response{Success: true, Message: fmt.Sprintf("Patched %d data points", len(points))}
-	case "deletedatapointforvalue":
+	case "deletedatapoint":
 		if op.Payload == nil {
 			return Response{Success: false, Message: "Payload required"}
 		}
 		if op.Payload.Operator != ">" && op.Payload.Operator != "<" {
 			return Response{Success: false, Message: "Payload operator must be '>' or '<'"}
 		}
+		if op.Payload.TimestampFrom > 0 && op.Payload.TimestampTo > 0 && op.Payload.TimestampFrom > op.Payload.TimestampTo {
+			return Response{Success: false, Message: "timestampFrom must be less than or equal to timestampTo"}
+		}
 
-		removedCount := buffer.DeleteDataPointsForValue(op.Key, op.Payload.Operator, op.Payload.Value)
+		removedCount := buffer.DeleteDataPoints(op.Key, op.Payload.Operator, op.Payload.Value, op.Payload.TimestampFrom, op.Payload.TimestampTo)
 		return Response{
 			Success: true,
 			Message: fmt.Sprintf("Removed %d data points and patched data", removedCount),

@@ -268,7 +268,7 @@ func TestHandleOperation(t *testing.T) {
 		}
 	})
 
-	t.Run("DeleteDataPointForValue Operation", func(t *testing.T) {
+	t.Run("deleteDataPoint Operation", func(t *testing.T) {
 		testKey := "delete_by_value_test"
 		baseTime := time.Now().Unix()
 
@@ -287,15 +287,15 @@ func TestHandleOperation(t *testing.T) {
 		}
 
 		resp := HandleOperation(Operation{
-			Operation: "deleteDataPointForValue",
+			Operation: "deleteDataPoint",
 			Key:       testKey,
-			Payload: &DeleteDataPointForValueRequest{
+			Payload: &DeleteDataPointRequest{
 				Operator: ">",
 				Value:    2.0,
 			},
 		})
 		if !resp.Success {
-			t.Fatalf("DeleteDataPointForValue failed: %s", resp.Message)
+			t.Fatalf("deleteDataPoint failed: %s", resp.Message)
 		}
 
 		readResp := HandleOperation(Operation{
@@ -324,17 +324,71 @@ func TestHandleOperation(t *testing.T) {
 		}
 	})
 
-	t.Run("DeleteDataPointForValue Invalid Operator", func(t *testing.T) {
+	t.Run("deleteDataPoint Invalid Operator", func(t *testing.T) {
 		resp := HandleOperation(Operation{
-			Operation: "deleteDataPointForValue",
+			Operation: "deleteDataPoint",
 			Key:       "delete_by_value_invalid",
-			Payload: &DeleteDataPointForValueRequest{
+			Payload: &DeleteDataPointRequest{
 				Operator: "=",
 				Value:    2.0,
 			},
 		})
 		if resp.Success {
 			t.Fatal("Expected invalid operator request to fail")
+		}
+	})
+
+	t.Run("deleteDataPoint with timestamp range", func(t *testing.T) {
+		testKey := "delete_by_value_with_range_test"
+		baseTime := time.Now().Unix()
+
+		for i, value := range []float64{1.0, 2.0, 3.0, 4.0} {
+			resp := HandleOperation(Operation{
+				Operation: "write",
+				Key:       testKey,
+				Write: &WriteRequest{
+					Value:     value,
+					Timestamp: baseTime + int64(i),
+				},
+			})
+			if !resp.Success {
+				t.Fatalf("Failed to write test data: %s", resp.Message)
+			}
+		}
+
+		resp := HandleOperation(Operation{
+			Operation: "deleteDataPoint",
+			Key:       testKey,
+			Payload: &DeleteDataPointRequest{
+				Operator:      ">",
+				Value:         2.0,
+				TimestampFrom: baseTime + 1,
+				TimestampTo:   baseTime + 2,
+			},
+		})
+		if !resp.Success {
+			t.Fatalf("deleteDataPoint with range failed: %s", resp.Message)
+		}
+
+		readResp := HandleOperation(Operation{
+			Operation: "read",
+			Key:       testKey,
+			Read: &ReadRequest{
+				StartTime: baseTime,
+				EndTime:   baseTime + 10,
+			},
+		})
+		if !readResp.Success {
+			t.Fatalf("Read after delete failed: %s", readResp.Message)
+		}
+
+		data, ok := readResp.Data.([]models.DataPoint)
+		if !ok {
+			t.Fatal("Invalid response data type")
+		}
+		// Remaining values should be 1.0, 2.0, 4.0 because 3.0 is in range and > 2.0, while 4.0 is out of range.
+		if len(data) != 3 {
+			t.Fatalf("Expected 3 remaining data points, got %d", len(data))
 		}
 	})
 
