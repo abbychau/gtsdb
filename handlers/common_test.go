@@ -338,6 +338,29 @@ func TestHandleOperation(t *testing.T) {
 		}
 	})
 
+	t.Run("ReloadKey Operation", func(t *testing.T) {
+		testKey := "reload_key_test"
+		resp := HandleOperation(Operation{
+			Operation: "write",
+			Key:       testKey,
+			Write: &WriteRequest{
+				Value:     9.9,
+				Timestamp: time.Now().Unix(),
+			},
+		})
+		if !resp.Success {
+			t.Fatalf("Failed to write test data: %s", resp.Message)
+		}
+
+		reloadResp := HandleOperation(Operation{
+			Operation: "reloadkey",
+			Key:       testKey,
+		})
+		if !reloadResp.Success {
+			t.Fatalf("ReloadKey failed: %s", reloadResp.Message)
+		}
+	})
+
 	t.Run("Invalid Operation", func(t *testing.T) {
 		op := Operation{
 			Operation: "invalid",

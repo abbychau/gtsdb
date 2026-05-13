@@ -29,7 +29,7 @@ type DeleteDataPointForValueRequest struct {
 }
 
 type Operation struct {
-	Operation string                          `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "multi-read", "data-patch", "deleteDataPointForValue"
+	Operation string                          `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "reloadkey", "multi-read", "data-patch", "deleteDataPointForValue"
 	Write     *WriteRequest                   `json:"write,omitempty"`
 	Read      *ReadRequest                    `json:"read,omitempty"`
 	Payload   *DeleteDataPointForValueRequest `json:"payload,omitempty"`
@@ -82,6 +82,12 @@ func HandleOperation(op Operation) Response {
 	case "deletekey":
 		buffer.DeleteKey(op.Key)
 		return Response{Success: true, Message: "Key deleted: " + op.Key}
+	case "reloadkey":
+		ok := buffer.ReloadKey(op.Key)
+		if ok {
+			return Response{Success: true, Message: "Key reloaded: " + op.Key}
+		}
+		return Response{Success: true, Message: "Key reloaded (not found on disk): " + op.Key}
 	case "write":
 		if op.Write == nil {
 			return Response{Success: false, Message: "Write data required"}

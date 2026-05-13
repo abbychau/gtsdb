@@ -129,6 +129,49 @@ func DeleteKey(dataPointId string) {
 	}
 }
 
+func ReloadKey(dataPointId string) bool {
+	if dataPointId == "" {
+		return false
+	}
+
+	renameLock.Lock()
+	defer renameLock.Unlock()
+
+	dfk := dataPointId + ".aof"
+	ifk := dataPointId + ".idx"
+
+	if dfh, ok := dataFileHandles.Get(dfk); ok && dfh != nil {
+		dfh.Close()
+	}
+	if ifh, ok := indexFileHandles.Get(ifk); ok && ifh != nil {
+		ifh.Close()
+	}
+
+	dataFileHandles.Delete(dfk)
+	indexFileHandles.Delete(ifk)
+	idToRingBufferMap.Delete(dataPointId)
+	idToCountMap.Delete(dataPointId)
+	lastValue.Delete(dataPointId)
+	lastTimestamp.Delete(dataPointId)
+
+	if _, err := os.Stat(utils.DataDir + "/" + dfk); err != nil {
+		if os.IsNotExist(err) {
+			allIds.Remove(dataPointId)
+			return false
+		}
+		utils.Errorln(err)
+		return false
+	}
+
+	prepareFileHandles(dfk, dataFileHandles)
+	if _, err := os.Stat(utils.DataDir + "/" + ifk); err == nil {
+		prepareFileHandles(ifk, indexFileHandles)
+	}
+	allIds.Add(dataPointId)
+
+	return true
+}
+
 func StoreDataPointBuffer(dataPoint models.DataPoint) {
 	allIds.Add(dataPoint.Key)
 

@@ -1,14 +1,24 @@
 {
-    "apps" : [
-        {
-            "name"       : "gtsdb",
-            "script"     : "./gtsdb",
-            "args"       : ["mygtsdb.ini"],
-            "exec_interpreter": "none",
-            "exec_mode"  : "fork_mode",
-            "watch"      : false,
-            "error_file": "./logs/gtsdb_err.log",
-            "out_file"  : "./logs/gtsdb_out.log"
-        }
-    ]
+  "apps": [
+    {
+      "name": "gtsdb",
+      "script": "./gtsdb",
+      "args": ["mygtsdb.ini"],
+      "exec_interpreter": "none",
+      "exec_mode": "fork_mode",
+      "watch": false,
+      "error_file": "./logs/gtsdb_err.log",
+      "out_file": "./logs/gtsdb_out.log"
+    },
+    {
+      "name": "gtsdb-patch-remove-data",
+      "script": "go",
+      "args": ["run", "./tools/patch_remove_data.go"],
+      "exec_interpreter": "none",
+      "exec_mode": "fork_mode",
+      "watch": false,
+      "error_file": "./logs/patch_remove_data_err.log",
+      "out_file": "./logs/patch_remove_data_out.log"
+    }
+  ]
 }
