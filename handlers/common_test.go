@@ -358,6 +358,9 @@ func TestHandleOperation(t *testing.T) {
 		})
 		if !reloadResp.Success {
 			t.Fatalf("ReloadKey failed: %s", reloadResp.Message)
+		}
+	})
+
 	t.Run("deleteDataPoint with timestamp range", func(t *testing.T) {
 		testKey := "delete_by_value_with_range_test"
 		baseTime := time.Now().Unix()
