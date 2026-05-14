@@ -293,7 +293,13 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 }
 
 func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
-	dataFile := prepareFileHandles(key+".aof", dataFileHandles)
+	// Open data file WITHOUT O_APPEND for in-place write (WriteAt is forbidden on O_APPEND files)
+	dataFile, err := os.OpenFile(utils.DataDir+"/"+key+".aof", os.O_RDWR, 0644)
+	if err != nil {
+		return false
+	}
+	defer dataFile.Close()
+
 	indexFile := prepareFileHandles(key+".idx", indexFileHandles)
 
 	startOffset := int64(0)
@@ -331,11 +337,12 @@ func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
 		}
 
 		if ts == point.Timestamp {
-			// timestamp(int64)=8 bytes; value starts at +8
-			if _, err := dataFile.Seek(offset+int64(binary.Size(ts)), io.SeekStart); err != nil {
+			// Use WriteAt to write at the exact byte offset, bypassing O_APPEND
+			var valBuf [8]byte
+			binary.LittleEndian.PutUint64(valBuf[:], math.Float64bits(point.Value))
+			if _, err := dataFile.WriteAt(valBuf[:], offset+int64(binary.Size(ts))); err != nil {
 				return false
 			}
-			writeBinary(dataFile, point.Value)
 			dataFile.Sync()
 
 			if lastTs, ok := lastTimestamp.Load(key); ok && lastTs == point.Timestamp {

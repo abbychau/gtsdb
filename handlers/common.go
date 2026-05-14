@@ -27,8 +27,8 @@ type ReadRequest struct {
 type DeleteDataPointRequest struct {
 	Operator      string   `json:"operator,omitempty"`
 	Value         *float64 `json:"value,omitempty"`
-	TimestampFrom int64   `json:"timestampFrom,omitempty"`
-	TimestampTo   int64   `json:"timestampTo,omitempty"`
+	TimestampFrom int64    `json:"timestampFrom,omitempty"`
+	TimestampTo   int64    `json:"timestampTo,omitempty"`
 }
 
 type Operation struct {
