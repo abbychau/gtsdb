@@ -291,7 +291,7 @@ func TestHandleOperation(t *testing.T) {
 			Key:       testKey,
 			Payload: &DeleteDataPointRequest{
 				Operator: ">",
-				Value:    2.0,
+				Value:    func() *float64 { v := 2.0; return &v }(),
 			},
 		})
 		if !resp.Success {
@@ -330,7 +330,7 @@ func TestHandleOperation(t *testing.T) {
 			Key:       "delete_by_value_invalid",
 			Payload: &DeleteDataPointRequest{
 				Operator: "=",
-				Value:    2.0,
+				Value:    func() *float64 { v := 2.0; return &v }(),
 			},
 		})
 		if resp.Success {
@@ -384,7 +384,7 @@ func TestHandleOperation(t *testing.T) {
 			Key:       testKey,
 			Payload: &DeleteDataPointRequest{
 				Operator:      ">",
-				Value:         2.0,
+				Value:         func() *float64 { v := 2.0; return &v }(),
 				TimestampFrom: baseTime + 1,
 				TimestampTo:   baseTime + 2,
 			},

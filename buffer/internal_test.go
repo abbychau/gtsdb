@@ -554,7 +554,7 @@ func TestDeleteDataPoints(t *testing.T) {
 	storeDataPoints(id, initialPoints)
 	allIds.Add(id)
 
-	removedCount := DeleteDataPoints(id, ">", 2.5, 0, 0)
+	removedCount := DeleteDataPoints(id, ">", 2.5, true, 0, 0)
 	if removedCount != 2 {
 		t.Fatalf("Expected 2 removed points, got %d", removedCount)
 	}
@@ -585,7 +585,7 @@ func TestDeleteDataPointsDeletesWholeKey(t *testing.T) {
 	storeDataPoints(id, initialPoints)
 	allIds.Add(id)
 
-	removedCount := DeleteDataPoints(id, ">", 5.0, 0, 0)
+	removedCount := DeleteDataPoints(id, ">", 5.0, true, 0, 0)
 	if removedCount != 2 {
 		t.Fatalf("Expected 2 removed points, got %d", removedCount)
 	}
@@ -613,7 +613,7 @@ func TestDeleteDataPointsWithTimestampRange(t *testing.T) {
 	storeDataPoints(id, initialPoints)
 	allIds.Add(id)
 
-	removedCount := DeleteDataPoints(id, ">", 2.0, 2000, 3000)
+	removedCount := DeleteDataPoints(id, ">", 2.0, true, 2000, 3000)
 	if removedCount != 1 {
 		t.Fatalf("Expected 1 removed point, got %d", removedCount)
 	}

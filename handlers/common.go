@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"gtsdb/buffer"
 	"gtsdb/models"
@@ -24,8 +25,8 @@ type ReadRequest struct {
 }
 
 type DeleteDataPointRequest struct {
-	Operator      string  `json:"operator"`
-	Value         float64 `json:"value"`
+	Operator      string   `json:"operator,omitempty"`
+	Value         *float64 `json:"value,omitempty"`
 	TimestampFrom int64   `json:"timestampFrom,omitempty"`
 	TimestampTo   int64   `json:"timestampTo,omitempty"`
 }
@@ -227,37 +228,59 @@ func HandleOperation(op Operation) Response {
 
 	case "data-patch":
 		if op.Data == "" {
-			return Response{Success: false, Message: "CSV data required"}
+			return Response{Success: false, Message: "Data required (CSV or JSON array)"}
 		}
 
 		var points []models.DataPoint
-		rows := strings.Split(op.Data, "\n")
-		for _, row := range rows {
-			row = strings.TrimSpace(row)
-			if row == "" {
-				continue
+
+		// Check if data is a JSON array
+		trimmedData := strings.TrimSpace(op.Data)
+		if strings.HasPrefix(trimmedData, "[") {
+			// Parse JSON array format: [{"timestamp": 123, "value": 45.6}, ...]
+			var jsonPoints []struct {
+				Timestamp int64   `json:"timestamp"`
+				Value     float64 `json:"value"`
 			}
-			parts := strings.Split(row, ",")
-			if len(parts) != 2 {
-				continue
+			if err := json.Unmarshal([]byte(trimmedData), &jsonPoints); err != nil {
+				return Response{Success: false, Message: "Invalid JSON array format: " + err.Error()}
 			}
-			timestamp, err := strconv.ParseInt(parts[0], 10, 64)
-			if err != nil {
-				continue
+			for _, jp := range jsonPoints {
+				points = append(points, models.DataPoint{
+					Key:       op.Key,
+					Timestamp: jp.Timestamp,
+					Value:     jp.Value,
+				})
 			}
-			value, err := strconv.ParseFloat(parts[1], 64)
-			if err != nil {
-				continue
+		} else {
+			// Parse CSV format: timestamp,value per line
+			rows := strings.Split(op.Data, "\n")
+			for _, row := range rows {
+				row = strings.TrimSpace(row)
+				if row == "" {
+					continue
+				}
+				parts := strings.Split(row, ",")
+				if len(parts) != 2 {
+					continue
+				}
+				timestamp, err := strconv.ParseInt(parts[0], 10, 64)
+				if err != nil {
+					continue
+				}
+				value, err := strconv.ParseFloat(parts[1], 64)
+				if err != nil {
+					continue
+				}
+				points = append(points, models.DataPoint{
+					Key:       op.Key,
+					Timestamp: timestamp,
+					Value:     value,
+				})
 			}
-			points = append(points, models.DataPoint{
-				Key:       op.Key,
-				Timestamp: timestamp,
-				Value:     value,
-			})
 		}
 
 		if len(points) == 0 {
-			return Response{Success: false, Message: "No valid data points found in CSV"}
+			return Response{Success: false, Message: "No valid data points found in CSV or JSON"}
 		}
 
 		buffer.PatchDataPoints(points, op.Key)
@@ -267,14 +290,26 @@ func HandleOperation(op Operation) Response {
 		if op.Payload == nil {
 			return Response{Success: false, Message: "Payload required"}
 		}
-		if op.Payload.Operator != ">" && op.Payload.Operator != "<" {
-			return Response{Success: false, Message: "Payload operator must be '>' or '<'"}
+		hasValue := op.Payload.Value != nil
+		hasTimeRange := op.Payload.TimestampFrom > 0 && op.Payload.TimestampTo > 0
+		if !hasValue && !hasTimeRange {
+			return Response{Success: false, Message: "Either value or both timestampFrom and timestampTo are required"}
+		}
+		if hasValue && op.Payload.Operator != ">" && op.Payload.Operator != "<" {
+			return Response{Success: false, Message: "Payload operator must be '>' or '<' when value is provided"}
+		}
+		if (op.Payload.TimestampFrom > 0 && op.Payload.TimestampTo == 0) || (op.Payload.TimestampFrom == 0 && op.Payload.TimestampTo > 0) {
+			return Response{Success: false, Message: "Both timestampFrom and timestampTo are required together"}
 		}
 		if op.Payload.TimestampFrom > 0 && op.Payload.TimestampTo > 0 && op.Payload.TimestampFrom > op.Payload.TimestampTo {
 			return Response{Success: false, Message: "timestampFrom must be less than or equal to timestampTo"}
 		}
 
-		removedCount := buffer.DeleteDataPoints(op.Key, op.Payload.Operator, op.Payload.Value, op.Payload.TimestampFrom, op.Payload.TimestampTo)
+		value := 0.0
+		if hasValue {
+			value = *op.Payload.Value
+		}
+		removedCount := buffer.DeleteDataPoints(op.Key, op.Payload.Operator, value, hasValue, op.Payload.TimestampFrom, op.Payload.TimestampTo)
 		return Response{
 			Success: true,
 			Message: fmt.Sprintf("Removed %d data points and patched data", removedCount),

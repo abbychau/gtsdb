@@ -1,11 +1,14 @@
 package buffer
 
 import (
+	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"gtsdb/models"
 	"gtsdb/synchronous"
 	"gtsdb/utils"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -212,6 +215,43 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 		return dataPoints[i].Timestamp < dataPoints[j].Timestamp
 	})
 
+	// Fast path: if patch points are strictly newer than current tail, append directly.
+	// This avoids full file read + rewrite for common single-point patch usage.
+	if len(dataPoints) > 0 {
+		lastTs := int64(0)
+		if ts, ok := lastTimestamp.Load(key); ok {
+			lastTs = ts
+		} else {
+			last := ReadLastDataPoints(key, 1)
+			if len(last) > 0 {
+				lastTs = last[0].Timestamp
+			}
+		}
+
+		canAppend := true
+		for _, p := range dataPoints {
+			if p.Timestamp <= lastTs {
+				canAppend = false
+				break
+			}
+		}
+		if canAppend {
+			storeDataPoints(key, dataPoints)
+			allIds.Add(key)
+			lastValue.Store(key, dataPoints[len(dataPoints)-1].Value)
+			lastTimestamp.Store(key, dataPoints[len(dataPoints)-1].Timestamp)
+			return
+		}
+	}
+
+	// Fast path: single-point overwrite when timestamp already exists.
+	// This updates one 16-byte record in-place instead of full rewrite.
+	if len(dataPoints) == 1 {
+		if overwritten := tryOverwriteSingleTimestampValue(key, dataPoints[0]); overwritten {
+			return
+		}
+	}
+
 	// get all data points from key
 	existingDataPoints := readFiledDataPoints(key, 0, math.MaxInt64)
 
@@ -252,8 +292,70 @@ func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 	rewriteDataPoints(key, mergedDataPoints)
 }
 
-func DeleteDataPoints(key, operator string, value float64, timestampFrom, timestampTo int64) int {
-	if key == "" || (operator != ">" && operator != "<") {
+func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
+	dataFile := prepareFileHandles(key+".aof", dataFileHandles)
+	indexFile := prepareFileHandles(key+".idx", indexFileHandles)
+
+	startOffset := int64(0)
+	if _, err := indexFile.Seek(0, io.SeekStart); err == nil {
+		indexReader := bufio.NewReader(indexFile)
+		for {
+			var ts int64
+			var off int64
+			err := readBinary(indexReader, &ts, &off)
+			if err != nil {
+				break
+			}
+			if ts > point.Timestamp {
+				break
+			}
+			startOffset = off
+		}
+	}
+
+	if _, err := dataFile.Seek(startOffset, io.SeekStart); err != nil {
+		return false
+	}
+
+	reader := bufio.NewReader(dataFile)
+	offset := startOffset
+	for {
+		var ts int64
+		var val float64
+		err := readBinary(reader, &ts, &val)
+		if err != nil {
+			if err == io.EOF {
+				return false
+			}
+			return false
+		}
+
+		if ts == point.Timestamp {
+			// timestamp(int64)=8 bytes; value starts at +8
+			if _, err := dataFile.Seek(offset+int64(binary.Size(ts)), io.SeekStart); err != nil {
+				return false
+			}
+			writeBinary(dataFile, point.Value)
+			dataFile.Sync()
+
+			if lastTs, ok := lastTimestamp.Load(key); ok && lastTs == point.Timestamp {
+				lastValue.Store(key, point.Value)
+			}
+			return true
+		}
+		if ts > point.Timestamp {
+			return false
+		}
+
+		offset += int64(binary.Size(ts) + binary.Size(val))
+	}
+}
+
+func DeleteDataPoints(key, operator string, value float64, hasValue bool, timestampFrom, timestampTo int64) int {
+	if key == "" {
+		return 0
+	}
+	if hasValue && operator != ">" && operator != "<" {
 		return 0
 	}
 
@@ -281,8 +383,11 @@ func DeleteDataPoints(key, operator string, value float64, timestampFrom, timest
 		if timestampTo > 0 && dataPoint.Timestamp > timestampTo {
 			inTimeRange = false
 		}
-		shouldDeleteByValue := (operator == ">" && dataPoint.Value > value) || (operator == "<" && dataPoint.Value < value)
-		shouldDelete := inTimeRange && shouldDeleteByValue
+		shouldDelete := inTimeRange
+		if hasValue {
+			shouldDeleteByValue := (operator == ">" && dataPoint.Value > value) || (operator == "<" && dataPoint.Value < value)
+			shouldDelete = shouldDelete && shouldDeleteByValue
+		}
 		if shouldDelete {
 			removedCount++
 			continue

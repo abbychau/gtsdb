@@ -41,6 +41,50 @@ func authenticateRequest(r *http.Request) (auth.User, error) {
 	return user, nil
 }
 
+func allowedPrefixesForUser(userName string) []string {
+	selfPrefix := userName + "/"
+	if userName == "root" {
+		return []string{selfPrefix}
+	}
+	return []string{selfPrefix, "root/"}
+}
+
+func normalizeKeyForAccess(key string) string {
+	return strings.ReplaceAll(key, "\\", "/")
+}
+
+func normalizeKeyForResponse(key string) string {
+	return strings.ReplaceAll(key, "\\", "/")
+}
+
+func stripAllowedPrefixForUser(key string, userName string) string {
+	nk := normalizeKeyForResponse(key)
+	for _, p := range allowedPrefixesForUser(userName) {
+		if strings.HasPrefix(nk, p) {
+			return strings.TrimPrefix(nk, p)
+		}
+	}
+	return nk
+}
+
+func resolveRequestKeyForUser(key string, userName string) string {
+	nk := normalizeKeyForAccess(key)
+	if strings.Contains(nk, "/") {
+		return nk
+	}
+	return userName + "/" + nk
+}
+
+func isAllowedKeyForUser(key string, userName string) bool {
+	key = normalizeKeyForAccess(key)
+	for _, p := range allowedPrefixesForUser(userName) {
+		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 	mux := http.NewServeMux()
 
@@ -90,17 +134,34 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 			return
 		}
 
-		// Prefix keys
-		prefix := user.Name + "/"
+		// Resolve unprefixed request keys to user's folder.
 		if op.Key != "" {
-			op.Key = prefix + op.Key
+			op.Key = resolveRequestKeyForUser(op.Key, user.Name)
 		}
 		if op.ToKey != "" {
-			op.ToKey = prefix + op.ToKey
+			op.ToKey = resolveRequestKeyForUser(op.ToKey, user.Name)
 		}
 		if len(op.Keys) > 0 {
 			for i, k := range op.Keys {
-				op.Keys[i] = prefix + k
+				op.Keys[i] = resolveRequestKeyForUser(k, user.Name)
+			}
+		}
+
+		// Enforce access by folder-based authorization.
+		if op.Key != "" && !isAllowedKeyForUser(op.Key, user.Name) {
+			writeJSON(w, Response{Success: false, Message: "Unauthorized key access"})
+			return
+		}
+		if op.ToKey != "" && !isAllowedKeyForUser(op.ToKey, user.Name) {
+			writeJSON(w, Response{Success: false, Message: "Unauthorized key access"})
+			return
+		}
+		if len(op.Keys) > 0 {
+			for _, k := range op.Keys {
+				if !isAllowedKeyForUser(k, user.Name) {
+					writeJSON(w, Response{Success: false, Message: "Unauthorized key access"})
+					return
+				}
 			}
 		}
 
@@ -115,14 +176,14 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 
 		response := HandleOperation(op)
 
-		// Filter and Unprefix response
+		// Filter response to folder-based visibility. Hide user/root folder prefix in response.
 		switch op.Operation {
 		case "ids":
 			if ids, ok := response.Data.([]string); ok {
 				var filtered []string
 				for _, id := range ids {
-					if strings.HasPrefix(id, prefix) {
-						filtered = append(filtered, strings.TrimPrefix(id, prefix))
+					if isAllowedKeyForUser(id, user.Name) {
+						filtered = append(filtered, stripAllowedPrefixForUser(id, user.Name))
 					}
 				}
 				response.Data = filtered
@@ -131,8 +192,8 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 			if keyCounts, ok := response.Data.([]models.KeyCount); ok {
 				var filtered []models.KeyCount
 				for _, kc := range keyCounts {
-					if strings.HasPrefix(kc.Key, prefix) {
-						kc.Key = strings.TrimPrefix(kc.Key, prefix)
+					if isAllowedKeyForUser(kc.Key, user.Name) {
+						kc.Key = stripAllowedPrefixForUser(kc.Key, user.Name)
 						filtered = append(filtered, kc)
 					}
 				}
@@ -141,7 +202,7 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 		case "read":
 			if dataPoints, ok := response.Data.([]models.DataPoint); ok {
 				for i := range dataPoints {
-					dataPoints[i].Key = strings.TrimPrefix(dataPoints[i].Key, prefix)
+					dataPoints[i].Key = stripAllowedPrefixForUser(dataPoints[i].Key, user.Name)
 				}
 				response.Data = dataPoints
 			}
@@ -149,12 +210,12 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 			if response.MultiData != nil {
 				newMultiData := make(map[string][]models.DataPoint)
 				for k, v := range response.MultiData {
-					if strings.HasPrefix(k, prefix) {
-						newKey := strings.TrimPrefix(k, prefix)
+					if isAllowedKeyForUser(k, user.Name) {
+						nk := stripAllowedPrefixForUser(k, user.Name)
 						for i := range v {
-							v[i].Key = strings.TrimPrefix(v[i].Key, prefix)
+							v[i].Key = stripAllowedPrefixForUser(v[i].Key, user.Name)
 						}
-						newMultiData[newKey] = v
+						newMultiData[nk] = v
 					}
 				}
 				response.MultiData = newMultiData
@@ -191,3 +252,4 @@ func handleSSE(w http.ResponseWriter, key string, fanoutManager *fanout.Fanout) 
 	// Wait until connection is closed
 	select {}
 }
+
