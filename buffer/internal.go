@@ -42,7 +42,6 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
 	for _, dataPoint := range dataPoints {
 		writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value)
-		dataFile.Sync() // Force immediate write to disk
 
 		countValue, _ := idToCountMap.Load(dataPointId)
 		count := countValue
@@ -54,6 +53,8 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 			updateIndexFile(indexFile, dataPoint.Timestamp, offset)
 		}
 	}
+	// Sync once after all points are written instead of per-point
+	dataFile.Sync()
 }
 
 func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.File]) *os.File {
