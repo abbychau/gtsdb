@@ -47,7 +47,7 @@ func main() {
 	fmt.Printf("Badge saved: %s\n", badgePath)
 
 	fullPath := filepath.Join(outDir, "coverage-full.svg")
-	generateSVGBarChart(fullPath, stats, coverage)
+	generateSVGBarChart(fullPath, stats, coverage, overallCovered, overallTotal)
 	fmt.Printf("Bar chart saved: %s\n", fullPath)
 }
 
@@ -100,33 +100,72 @@ func shortenPath(file string) string {
 func coverageColor(pct float64) string {
 	switch {
 	case pct < 50:
-		return "#b54343"
+		return "#e05d44"
+	case pct < 70:
+		return "#dfb317"
 	case pct < 80:
-		return "#d4c43a"
+		return "#a4a61d"
+	case pct < 90:
+		return "#97ca00"
 	default:
-		return "#4bb543"
+		return "#44cc11"
 	}
 }
 
 func generateSVGBadge(path string, coverage float64) {
 	color := coverageColor(coverage)
-	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="170" height="28">
-  <rect width="170" height="28" rx="4" fill="#0a0a0a"/>
-  <text x="12" y="19" font-family="monospace" font-size="13" fill="#fff">Coverage:</text>
-  <text x="90" y="19" font-family="monospace" font-size="13" font-weight="bold" fill="%s">%.1f%%</text>
-</svg>`, color, coverage)
+	label := "coverage"
+	value := fmt.Sprintf("%.1f%%", coverage)
+
+	// Measure approximate text widths (Verdana 11px, ~6.5px per char)
+	labelW := len(label)*7 + 20
+	valueW := len(value)*7 + 20
+	totalW := labelW + valueW
+	labelCenter := labelW / 2
+	valueCenter := labelW + valueW/2
+
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20">
+  <defs>
+    <linearGradient id="s" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".18"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".1"/>
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a4a4a"/>
+      <stop offset="1" stop-color="#333"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+  <clipPath id="r">
+    <rect width="%d" height="20" rx="4" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)" filter="url(#shadow)">
+    <rect width="%d" height="20" fill="url(#left)"/>
+    <rect x="%d" width="%d" height="20" fill="%s"/>
+    <rect width="%d" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11">
+    <text x="%d" y="14" fill="#000" opacity=".25">%s</text>
+    <text x="%d" y="13.5">%s</text>
+    <text x="%d" y="14" fill="#000" opacity=".25">%s</text>
+    <text x="%d" y="13.5">%s</text>
+  </g>
+</svg>`, totalW, totalW, labelW, labelW, valueW, color, totalW, labelCenter, label, labelCenter, label, valueCenter, value, valueCenter, value)
 	os.WriteFile(path, []byte(svg), 0644)
 }
 
-func generateSVGBarChart(path string, stats map[string]*fileStats, overall float64) {
+func generateSVGBarChart(path string, stats map[string]*fileStats, overall float64, covered, total int) {
 	keys := make([]string, 0, len(stats))
 	for k := range stats {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	barH, gap, topMargin := 20, 8, 40
+	barH, gap, topMargin := 22, 6, 48
 	chartWidth, chartHeight := 750, topMargin+len(keys)*(barH+gap)+30
-	maxBarW := chartWidth - 350
+	maxBarW := chartWidth - 360
 
 	var bars strings.Builder
 	y := topMargin
@@ -134,19 +173,22 @@ func generateSVGBarChart(path string, stats map[string]*fileStats, overall float
 		s := stats[k]
 		pct := float64(s.covered) / float64(s.total) * 100
 		barW := int(pct / 100 * float64(maxBarW))
+		if barW < 2 {
+			barW = 2
+		}
 		color := coverageColor(pct)
 		bars.WriteString(fmt.Sprintf(
-			`  <text x="10" y="%d" font-family="monospace" font-size="12" fill="#333">%s</text>
-  <rect x="220" y="%d" width="%d" height="%d" rx="2" fill="%s"/>
-  <rect x="%d" y="%d" width="%d" height="%d" rx="2" fill="#eee"/>
-  <text x="%d" y="%d" font-family="monospace" font-size="12" fill="#333">%.1f%%</text>
-`, y+15, k, y+3, barW, barH, color, 220+barW, y+3, maxBarW-barW, barH, 220+maxBarW+10, y+15, pct))
+			`  <text x="12" y="%d" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">%s</text>
+  <rect x="240" y="%d" width="%d" height="%d" rx="3" fill="%s"/>
+  <rect x="%d" y="%d" width="%d" height="%d" rx="3" fill="%s" opacity="0.15"/>
+  <text x="%d" y="%d" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">%.1f%% (%d/%d)</text>
+`, y+15, k, y+2, barW, barH, color, 240+barW, y+2, maxBarW-barW, barH, color, 240+maxBarW+8, y+15, pct, s.covered, s.total))
 		y += barH + gap
 	}
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">
-  <rect width="%d" height="%d" fill="#fff"/>
-  <text x="10" y="25" font-family="monospace" font-size="15" font-weight="bold" fill="#333">Coverage Report: %.1f%%</text>
-%s</svg>`, chartWidth, chartHeight, chartWidth, chartHeight, overall, bars.String())
+  <rect width="%d" height="%d" fill="#fafafa"/>
+  <text x="12" y="30" font-family="Verdana,DejaVu Sans,sans-serif" font-size="16" font-weight="bold" fill="#333">Coverage: %.1f%% (%d/%d statements)</text>
+%s</svg>`, chartWidth, chartHeight, chartWidth, chartHeight, overall, covered, total, bars.String())
 	os.WriteFile(path, []byte(svg), 0644)
 }
