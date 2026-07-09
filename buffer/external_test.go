@@ -791,3 +791,129 @@ func TestReloadKeyNonExistent(t *testing.T) {
 		t.Error("ReloadKey should return false for non-existent key")
 	}
 }
+
+func TestDeleteKeyEmpty(t *testing.T) {
+	// Should not panic, just return
+	DeleteKey("")
+}
+
+func TestDeleteDataPointsInvalidOperator(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_delete_invalid_op"
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: time.Now().Unix(), Value: 1.0})
+
+	// hasValue=true but operator is invalid (not ">" or "<")
+	removed := DeleteDataPoints(key, "=", 0.5, true, 0, 0)
+	if removed != 0 {
+		t.Errorf("Expected 0 removed for invalid operator, got %d", removed)
+	}
+}
+
+func TestDeleteDataPointsEmptyKey(t *testing.T) {
+	removed := DeleteDataPoints("", ">", 0.5, true, 0, 0)
+	if removed != 0 {
+		t.Errorf("Expected 0 for empty key, got %d", removed)
+	}
+}
+
+func TestTryOverwriteNonExistentTimestamp(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_overwrite_miss"
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 1000, Value: 1.0})
+
+	// Try to overwrite a timestamp that doesn't exist
+	overwritten := tryOverwriteSingleTimestampValue(key, models.DataPoint{Key: key, Timestamp: 2000, Value: 99.0})
+	if overwritten {
+		t.Error("Expected false for non-existent timestamp")
+	}
+}
+
+func TestTryOverwriteNonExistentKey(t *testing.T) {
+	// Try to overwrite on a key that doesn't exist
+	overwritten := tryOverwriteSingleTimestampValue("nonexistent_overwrite", models.DataPoint{Timestamp: 1000, Value: 1.0})
+	if overwritten {
+		t.Error("Expected false for non-existent key")
+	}
+}
+
+func TestReadLastDataPointsFromCache(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_read_last_cached"
+	originalCacheSize := cacheSize
+	cacheSize = 5
+	defer func() { cacheSize = originalCacheSize }()
+
+	// Store data through StoreDataPointBuffer which populates both ring buffer and lastValue
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 1000, Value: 88.8})
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 2000, Value: 99.9})
+
+	points := ReadLastDataPoints(key, 1)
+	if len(points) != 1 {
+		t.Fatalf("Expected 1 point from cache, got %d", len(points))
+	}
+	if points[0].Value != 99.9 {
+		t.Errorf("Expected latest cached value 99.9, got %f", points[0].Value)
+	}
+}
+
+func TestReadFiledDataPointsWithoutIndex(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_read_no_index"
+	// Write data but delete the index file to trigger the no-index path
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 1000, Value: 42.0})
+	FlushRemainingDataPoints()
+
+	// Remove the index file
+	os.Remove(utils.DataDir + "/" + key + ".idx")
+
+	// Close and delete index handle from cache so it re-opens
+	if ifh, ok := indexFileHandles.Get(key + ".idx"); ok {
+		ifh.Close()
+		indexFileHandles.Delete(key + ".idx")
+	}
+
+	points := ReadDataPoints(key, 0, 2000, 0, "avg")
+	if len(points) != 1 || points[0].Value != 42.0 {
+		t.Errorf("Expected 1 point with value 42.0, got %d points", len(points))
+	}
+}
+
+func TestReadLastFiledEdgeCases(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_read_last_edge"
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 1000, Value: 1.0})
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 2000, Value: 2.0})
+
+	// Read more than available
+	points, err := readLastFiledDataPoints(key, 100)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if len(points) != 2 {
+		t.Errorf("Expected 2 points, got %d", len(points))
+	}
+}
+
+func TestGetTotalDataPoints(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_total_count"
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 1000, Value: 1.0})
+	StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: 2000, Value: 2.0})
+
+	total := GetTotalDataPoints()
+	if total < 2 {
+		t.Errorf("Expected at least 2 total data points, got %d", total)
+	}
+}

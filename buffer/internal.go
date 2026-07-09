@@ -460,13 +460,13 @@ func computeAggregate(aggregation string, sum, count float64, min, max, first, l
 func InitFileHandles() {
 	capacity := utils.FileHandleLRUCapacity
 
-	dataFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
+	dataFileHandles = concurrent.NewLRUWithEvict(capacity, func(_ string, f *os.File) {
 		if f != nil {
 			f.Close()
 		}
 	})
 
-	indexFileHandles = concurrent.NewLRUWithEvict[string, *os.File](capacity, func(_ string, f *os.File) {
+	indexFileHandles = concurrent.NewLRUWithEvict(capacity, func(_ string, f *os.File) {
 		if f != nil {
 			f.Close()
 		}
