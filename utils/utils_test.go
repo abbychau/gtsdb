@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -22,14 +23,10 @@ func TestInitDataDirectory(t *testing.T) {
 }
 
 func TestLoggingFunctions(t *testing.T) {
-	// Capture stdout
-	old := os.Stdout
-	_, w, _ := os.Pipe()
-	os.Stdout = w
-	defer func() {
-		w.Close()
-		os.Stdout = old
-	}()
+	// Set log level to Debug for testing
+	oldLevel := atomic.LoadInt32(&LogLevel)
+	atomic.StoreInt32(&LogLevel, LogLevelDebug)
+	defer atomic.StoreInt32(&LogLevel, oldLevel)
 
 	tests := []struct {
 		name     string

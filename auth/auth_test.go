@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"gtsdb/utils"
 	"os"
 	"testing"
@@ -99,7 +100,7 @@ func TestVerifyToken(t *testing.T) {
 	usersFile = dir + "/users.json"
 	Init(dir)
 
-	root, _ := users["root"]
+	root := users["root"]
 
 	t.Run("valid token", func(t *testing.T) {
 		user, ok := VerifyToken(root.Token)
@@ -177,7 +178,7 @@ func TestGetUser(t *testing.T) {
 	usersFile = dir + "/users.json"
 	Init(dir)
 
-	CreateUser("charlie")
+	_, _ = CreateUser("charlie")
 
 	t.Run("get existing user", func(t *testing.T) {
 		user, ok := GetUser("charlie")
@@ -217,5 +218,73 @@ func TestRootTokenFromConfig(t *testing.T) {
 	}
 	if root.Token != "my-custom-root-token" {
 		t.Errorf("Expected root token from config, got %s", root.Token)
+	}
+}
+
+func TestLoadUsersFromFile(t *testing.T) {
+	dir := setupTestDir(t)
+	defer cleanupTestDir(t, dir)
+
+	// Pre-create a users.json with known data (JSON array format)
+	usersData := []User{
+		{Name: "loaded-user", Token: "loaded-token-123"},
+	}
+	data, err := json.Marshal(usersData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/users.json", data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset and reload
+	users = make(map[string]User)
+	usersFile = dir + "/users.json"
+
+	// Clear RootToken so Init doesn't overwrite
+	origRootToken := utils.RootToken
+	utils.RootToken = ""
+	defer func() { utils.RootToken = origRootToken }()
+
+	Init(dir)
+
+	// Verify the user was loaded
+	user, ok := users["loaded-user"]
+	if !ok {
+		t.Fatal("Expected 'loaded-user' to be loaded from file")
+	}
+	if user.Token != "loaded-token-123" {
+		t.Errorf("Expected token 'loaded-token-123', got %s", user.Token)
+	}
+}
+
+func TestSaveUsers(t *testing.T) {
+	dir := setupTestDir(t)
+	defer cleanupTestDir(t, dir)
+
+	users = make(map[string]User)
+	usersFile = dir + "/users.json"
+	users["test-save"] = User{Name: "test-save", Token: "save-token"}
+
+	saveUsers()
+
+	// Read back the file (JSON array format)
+	data, err := os.ReadFile(dir + "/users.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded []User
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range loaded {
+		if u.Name == "test-save" && u.Token == "save-token" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected 'test-save' with token 'save-token' in saved file")
 	}
 }

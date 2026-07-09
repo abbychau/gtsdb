@@ -22,10 +22,10 @@ func TestRingBuffer_BasicOperations(t *testing.T) {
 	}
 
 	// Test getting elements
-	if v := rb.Get(0); v != 1 {
-		t.Errorf("Expected 1, got %d", v)
+	if v, ok := rb.Get(0); !ok || v != 1 {
+		t.Errorf("Expected 1, got %d (ok=%v)", v, ok)
 	}
-	if v := rb.Get(2); v != 3 {
+	if v, ok := rb.Get(2); !ok || v != 3 {
 		t.Errorf("Expected 3, got %d", v)
 	}
 }
@@ -43,7 +43,7 @@ func TestRingBuffer_Overflow(t *testing.T) {
 		t.Errorf("Expected size 3, got %d", rb.Size())
 	}
 
-	if v := rb.Get(0); v != 2 {
+	if v, ok := rb.Get(0); !ok || v != 2 {
 		t.Errorf("Expected 2, got %d", v)
 	}
 }
@@ -62,15 +62,11 @@ func TestRingBuffer_GetAll(t *testing.T) {
 	}
 }
 
-func TestRingBuffer_PanicOnInvalidGet(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic on invalid Get")
-		}
-	}()
-
+func TestRingBuffer_GetOnEmptyReturnsFalse(t *testing.T) {
 	rb := NewRingBuffer[int](3)
-	rb.Get(0) // Should panic
+	if _, ok := rb.Get(0); ok {
+		t.Error("Expected ok=false for Get on empty buffer")
+	}
 }
 
 // Benchmarks

@@ -338,6 +338,56 @@ func TestDownsampleDataPointsEdgeCases(t *testing.T) {
 	})
 }
 
+func TestComputeAggregateAllTypes(t *testing.T) {
+	// Create data: values 1,2,3,4,5 (sum=15, avg=3, min=1, max=5, first=1, last=5, count=5, median=3, p95=5, p99=5)
+	values := []float64{1, 2, 3, 4, 5}
+
+	tests := []struct {
+		name        string
+		aggregation string
+		sum, count  float64
+		min, max    float64
+		first, last float64
+		values      []float64
+		want        float64
+	}{
+		{"avg", "avg", 15, 5, 1, 5, 1, 5, values, 3.0},
+		{"sum", "sum", 15, 5, 1, 5, 1, 5, nil, 15.0},
+		{"min", "min", 15, 5, 1, 5, 1, 5, nil, 1.0},
+		{"max", "max", 15, 5, 1, 5, 1, 5, nil, 5.0},
+		{"first", "first", 15, 5, 1, 5, 1, 5, nil, 1.0},
+		{"last", "last", 15, 5, 1, 5, 1, 5, nil, 5.0},
+		{"count", "count", 15, 5, 1, 5, 1, 5, nil, 5.0},
+		{"median", "median", 15, 5, 1, 5, 1, 5, values, 3.0},
+		{"p50", "p50", 15, 5, 1, 5, 1, 5, values, 3.0},
+		{"p95", "p95", 15, 5, 1, 5, 1, 5, values, 5.0},
+		{"p99", "p99", 15, 5, 1, 5, 1, 5, values, 5.0},
+		{"default", "unknown", 15, 5, 1, 5, 1, 5, nil, 3.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := computeAggregate(tt.aggregation, tt.sum, tt.count, tt.min, tt.max, tt.first, tt.last, tt.values)
+			if got != tt.want {
+				t.Errorf("computeAggregate(%q) = %f, want %f", tt.aggregation, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestComputeAggregatePercentileEdgeCases(t *testing.T) {
+	// median/p50 with empty values
+	if got := computeAggregate("median", 0, 0, 0, 0, 0, 0, nil); got != 0 {
+		t.Errorf("median with empty values = %f, want 0", got)
+	}
+	if got := computeAggregate("p95", 0, 0, 0, 0, 0, 0, nil); got != 0 {
+		t.Errorf("p95 with empty values = %f, want 0", got)
+	}
+	if got := computeAggregate("p99", 0, 0, 0, 0, 0, 0, nil); got != 0 {
+		t.Errorf("p99 with empty values = %f, want 0", got)
+	}
+}
+
 func TestReadBufferedDataPointsEdgeCases(t *testing.T) {
 	id := "TestReadBufferedDataPointsEdgeCases"
 

@@ -1,17 +1,14 @@
 <?php
-
 class CoverageAnalyzer {
     private $files = [];
     private $totalStmts = 0;
     private $coveredStmts = 0;
-
     public function analyze($filename) {
         $lines = file($filename);
         array_shift($lines); // remove mode: set
 
         foreach ($lines as $line) {
             if (empty(trim($line))) continue;
-            
             // Parse line: file:start.col,end.col numStatements count
             $parts = preg_split('/[\s]+/', trim($line));
             $file = explode(':', $parts[0])[0];
@@ -21,12 +18,10 @@ class CoverageAnalyzer {
             if (!isset($this->files[$file])) {
                 $this->files[$file] = ['total' => 0, 'covered' => 0];
             }
-            
             $this->files[$file]['total'] += $stmts;
             if ($execCount > 0) {
                 $this->files[$file]['covered'] += $stmts;
             }
-            
             $this->totalStmts += $stmts;
             if ($execCount > 0) {
                 $this->coveredStmts += $stmts;

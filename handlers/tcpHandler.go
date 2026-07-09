@@ -17,6 +17,12 @@ import (
 	"time"
 )
 
+// writeTCPResponse encodes a Response as JSON to the TCP connection.
+// Returns false if the write fails (connection likely dead).
+func writeTCPResponse(conn net.Conn, resp Response) bool {
+	return json.NewEncoder(conn).Encode(resp) == nil
+}
+
 func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	defer conn.Close()
 	id := rand.Intn(1000) + int(time.Now().UnixNano())
@@ -51,7 +57,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			case <-done:
 				return
 			case <-ticker.C:
-				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if err := json.NewEncoder(conn).Encode(Response{Success: true, Message: "ping"}); err != nil {
 					utils.Log("Client %d failed ping", id)
 					cleanupOnce.Do(cleanup)
@@ -65,56 +71,55 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		var op Operation
 		if err := json.Unmarshal(scanner.Bytes(), &op); err != nil {
 			response := Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()}
-			json.NewEncoder(conn).Encode(response)
+			_ = json.NewEncoder(conn).Encode(response)
 			continue
 		}
 
 		if op.Operation == "auth" {
 			if op.Key == "" {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Token required"})
+				writeTCPResponse(conn, Response{Success: false, Message: "Token required"})
 				continue
 			}
 			user, ok := auth.VerifyToken(op.Key)
 			if !ok {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Invalid token"})
+				writeTCPResponse(conn, Response{Success: false, Message: "Invalid token"})
 				continue
 			}
 			currentUser = user
-			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Authenticated as " + user.Name})
+			writeTCPResponse(conn, Response{Success: true, Message: "Authenticated as " + user.Name})
 			continue
 		}
 
 		if currentUser.Name == "" {
-			json.NewEncoder(conn).Encode(Response{Success: false, Message: "Authentication required"})
+			writeTCPResponse(conn, Response{Success: false, Message: "Authentication required"})
 			continue
 		}
 
 		if op.Operation == "adduser" {
 			if currentUser.Name != "root" {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Unauthorized"})
+				writeTCPResponse(conn, Response{Success: false, Message: "Unauthorized"})
 				continue
 			}
 			newUser, err := auth.CreateUser(op.Key)
 			if err != nil {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: err.Error()})
+				writeTCPResponse(conn, Response{Success: false, Message: err.Error()})
 				continue
 			}
-			json.NewEncoder(conn).Encode(Response{Success: true, Data: newUser})
+			writeTCPResponse(conn, Response{Success: true, Data: newUser})
 			continue
 		}
 
 		if op.Operation == "resetkey" {
 			if currentUser.Name != "root" {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Unauthorized"})
+				writeTCPResponse(conn, Response{Success: false, Message: "Unauthorized"})
 				continue
 			}
 			token, err := auth.ResetUserToken(op.Key)
 			if err != nil {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: err.Error()})
+				writeTCPResponse(conn, Response{Success: false, Message: err.Error()})
 				continue
 			}
-			json.NewEncoder(conn).Encode(Response{Success: true, Data: map[string]string{"token": token}})
-			continue
+			writeTCPResponse(conn, Response{Success: true, Data: map[string]string{"token": token}})
 		}
 
 		// Prefix keys
@@ -133,7 +138,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 
 		if op.Operation == "subscribe" {
 			if op.Key == "" {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
+				writeTCPResponse(conn, Response{Success: false, Message: "Device ID required"})
 				continue
 			}
 
@@ -142,7 +147,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				historicalData := buffer.ReadDataPoints(op.Key, op.Since, time.Now().Unix(), 0, "")
 				for _, point := range historicalData {
 					point.Key = strings.TrimPrefix(point.Key, prefix)
-					json.NewEncoder(conn).Encode(Response{Success: true, Data: point})
+					writeTCPResponse(conn, Response{Success: true, Data: point})
 				}
 			}
 
@@ -152,17 +157,17 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
 					if slices.Contains(subscribingDevices, msg.Key) {
 						msg.Key = strings.TrimPrefix(msg.Key, prefix)
-						json.NewEncoder(conn).Encode(Response{Success: true, Data: msg})
+						writeTCPResponse(conn, Response{Success: true, Data: msg})
 					}
 				})
 			}
-			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Subscribed to " + strings.TrimPrefix(op.Key, prefix)})
+			writeTCPResponse(conn, Response{Success: true, Message: "Subscribed to " + strings.TrimPrefix(op.Key, prefix)})
 			continue
 		}
 
 		if op.Operation == "unsubscribe" {
 			if op.Key == "" {
-				json.NewEncoder(conn).Encode(Response{Success: false, Message: "Device ID required"})
+				writeTCPResponse(conn, Response{Success: false, Message: "Device ID required"})
 				continue
 			}
 			for i, device := range subscribingDevices {
@@ -175,7 +180,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				utils.Log("Removing consumer %d", id)
 				fanoutManager.RemoveConsumer(id)
 			}
-			json.NewEncoder(conn).Encode(Response{Success: true, Message: "Unsubscribed from " + strings.TrimPrefix(op.Key, prefix)})
+			writeTCPResponse(conn, Response{Success: true, Message: "Unsubscribed from " + strings.TrimPrefix(op.Key, prefix)})
 			continue
 		}
 
@@ -235,7 +240,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			}
 		}
 
-		json.NewEncoder(conn).Encode(response)
+		writeTCPResponse(conn, response)
 	}
 
 	// Cleanup when the connection ends (safe via sync.Once)

@@ -83,7 +83,36 @@ func RenameKey(dataPointId, newId string) {
 
 	if err1 != nil || err2 != nil {
 		utils.Errorln("Error renaming files:", err1, err2)
+		allIds.Add(dataPointId) // restore old ID on failure
 		return
+	}
+
+	// Transfer in-memory state from old key to new key
+	if count, ok := idToCountMap.Load(dataPointId); ok {
+		idToCountMap.Store(newId, count)
+		idToCountMap.Delete(dataPointId)
+	}
+	if val, ok := lastValue.Load(dataPointId); ok {
+		lastValue.Store(newId, val)
+		lastValue.Delete(dataPointId)
+	}
+	if ts, ok := lastTimestamp.Load(dataPointId); ok {
+		lastTimestamp.Store(newId, ts)
+		lastTimestamp.Delete(dataPointId)
+	}
+	if rb, ok := idToRingBufferMap.Load(dataPointId); ok {
+		idToRingBufferMap.Store(newId, rb)
+		idToRingBufferMap.Delete(dataPointId)
+	}
+	// Transfer file write lock
+	if lock, ok := fileWriteLocks.Load(dataPointId); ok {
+		fileWriteLocks.Store(newId, lock)
+		fileWriteLocks.Delete(dataPointId)
+	}
+	// Transfer data patch lock
+	if lock, ok := dataPatchLocks.Load(dataPointId); ok {
+		dataPatchLocks.Store(newId, lock)
+		dataPatchLocks.Delete(dataPointId)
 	}
 
 	// Create new file handles
@@ -189,6 +218,8 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 
 	if cacheSize == 0 {
 		storeDataPoints(dataPoint.Key, []models.DataPoint{dataPoint})
+		lastValue.Store(dataPoint.Key, dataPoint.Value)
+		lastTimestamp.Store(dataPoint.Key, dataPoint.Timestamp)
 		return
 	}
 
@@ -318,7 +349,7 @@ func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
 			for {
 				var ts int64
 				var off int64
-				err := readBinary(indexReader, &ts, &off)
+				err := readIndexEntry(indexReader, &ts, &off)
 				if err != nil {
 					break
 				}
@@ -339,11 +370,8 @@ func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
 	for {
 		var ts int64
 		var val float64
-		err := readBinary(reader, &ts, &val)
+		err := readRecord(reader, &ts, &val)
 		if err != nil {
-			if err == io.EOF {
-				return false
-			}
 			return false
 		}
 
@@ -354,7 +382,9 @@ func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
 			if _, err := dataFile.WriteAt(valBuf[:], offset+int64(binary.Size(ts))); err != nil {
 				return false
 			}
-			dataFile.Sync()
+			if err := dataFile.Sync(); err != nil {
+				return false
+			}
 
 			if lastTs, ok := lastTimestamp.Load(key); ok && lastTs == point.Timestamp {
 				lastValue.Store(key, point.Value)
@@ -468,11 +498,15 @@ func FlushRemainingDataPoints() {
 
 	//fsync all file handles
 	dataFileHandles.Range(func(key string, value *os.File) bool {
-		value.Sync()
+		if err := value.Sync(); err != nil {
+			utils.Error("Error syncing data file: %v", err)
+		}
 		return true
 	})
 	indexFileHandles.Range(func(key string, value *os.File) bool {
-		value.Sync()
+		if err := value.Sync(); err != nil {
+			utils.Error("Error syncing index file: %v", err)
+		}
 		return true
 	})
 }
@@ -596,7 +630,7 @@ func CompactKey(key string) error {
 	// Write data points and rebuild index
 	count := int64(0)
 	for _, dp := range dataPoints {
-		if err := writeBinary(tmpDataFileHandle, dp.Timestamp, dp.Value); err != nil {
+		if err := writeRecord(tmpDataFileHandle, dp.Timestamp, dp.Value); err != nil {
 			tmpDataFileHandle.Close()
 			tmpIdxFileHandle.Close()
 			os.Remove(tmpDataFile)
@@ -606,7 +640,7 @@ func CompactKey(key string) error {
 		count++
 		if count%indexInterval == 0 {
 			offset := (count - 1) * 16
-			if err := writeBinary(tmpIdxFileHandle, dp.Timestamp, offset); err != nil {
+			if err := writeIndexEntry(tmpIdxFileHandle, dp.Timestamp, offset); err != nil {
 				tmpDataFileHandle.Close()
 				tmpIdxFileHandle.Close()
 				os.Remove(tmpDataFile)
@@ -631,7 +665,7 @@ func CompactKey(key string) error {
 	}
 	if err := os.Rename(tmpDataFile, realDataFile); err != nil {
 		// Rollback: restore old idx from what was just renamed
-		os.Rename(realIdxFile, tmpIdxFile)
+		_ = os.Rename(realIdxFile, tmpIdxFile)
 		os.Remove(tmpDataFile)
 		return fmt.Errorf("failed to rename data file: %w", err)
 	}

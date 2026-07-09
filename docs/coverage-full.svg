@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="322">
+  <rect width="750" height="322" fill="#fff"/>
+  <text x="10" y="25" font-family="monospace" font-size="15" font-weight="bold" fill="#333">Coverage Report: 93.2%</text>
+  <text x="10" y="55" font-family="monospace" font-size="12" fill="#333">buffer/external.go</text>
+  <rect x="220" y="43" width="379" height="20" rx="2" fill="#4bb543"/>
+  <rect x="599" y="43" width="21" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="55" font-family="monospace" font-size="12" fill="#333">94.9%</text>
+  <text x="10" y="83" font-family="monospace" font-size="12" fill="#333">buffer/internal.go</text>
+  <rect x="220" y="71" width="361" height="20" rx="2" fill="#4bb543"/>
+  <rect x="581" y="71" width="39" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="83" font-family="monospace" font-size="12" fill="#333">90.3%</text>
+  <text x="10" y="111" font-family="monospace" font-size="12" fill="#333">concurrent/lru.go</text>
+  <rect x="220" y="99" width="390" height="20" rx="2" fill="#4bb543"/>
+  <rect x="610" y="99" width="10" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="111" font-family="monospace" font-size="12" fill="#333">97.5%</text>
+  <text x="10" y="139" font-family="monospace" font-size="12" fill="#333">concurrent/map.go</text>
+  <rect x="220" y="127" width="400" height="20" rx="2" fill="#4bb543"/>
+  <rect x="620" y="127" width="0" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="139" font-family="monospace" font-size="12" fill="#333">100.0%</text>
+  <text x="10" y="167" font-family="monospace" font-size="12" fill="#333">concurrent/set.go</text>
+  <rect x="220" y="155" width="400" height="20" rx="2" fill="#4bb543"/>
+  <rect x="620" y="155" width="0" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="167" font-family="monospace" font-size="12" fill="#333">100.0%</text>
+  <text x="10" y="195" font-family="monospace" font-size="12" fill="#333">fanout/fanout.go</text>
+  <rect x="220" y="183" width="400" height="20" rx="2" fill="#4bb543"/>
+  <rect x="620" y="183" width="0" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="195" font-family="monospace" font-size="12" fill="#333">100.0%</text>
+  <text x="10" y="223" font-family="monospace" font-size="12" fill="#333">main.go</text>
+  <rect x="220" y="211" width="336" height="20" rx="2" fill="#4bb543"/>
+  <rect x="556" y="211" width="64" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="223" font-family="monospace" font-size="12" fill="#333">84.1%</text>
+  <text x="10" y="251" font-family="monospace" font-size="12" fill="#333">synchronous/ringbuffer.go</text>
+  <rect x="220" y="239" width="400" height="20" rx="2" fill="#4bb543"/>
+  <rect x="620" y="239" width="0" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="251" font-family="monospace" font-size="12" fill="#333">100.0%</text>
+  <text x="10" y="279" font-family="monospace" font-size="12" fill="#333">utils/utils.go</text>
+  <rect x="220" y="267" width="350" height="20" rx="2" fill="#4bb543"/>
+  <rect x="570" y="267" width="50" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="279" font-family="monospace" font-size="12" fill="#333">87.5%</text>
+</svg>

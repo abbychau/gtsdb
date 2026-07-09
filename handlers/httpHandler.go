@@ -21,7 +21,7 @@ var sseConsumerID atomic.Int64
 
 func writeJSON(w http.ResponseWriter, response Response) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func authenticateRequest(r *http.Request) (auth.User, error) {
@@ -97,7 +97,7 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 	// Health check endpoint (no auth required)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":   "ok",
 			"service":  "gtsdb",
 			"version":  "1.0",

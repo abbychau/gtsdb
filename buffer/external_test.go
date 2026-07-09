@@ -12,13 +12,13 @@ func cleanup() {
 	utils.DataDir = "../testdata"
 	// create folder if not exists
 	if _, err := os.Stat(utils.DataDir); os.IsNotExist(err) {
-		os.Mkdir(utils.DataDir, 0755)
+		_ = os.Mkdir(utils.DataDir, 0755)
 	}
 	files, _ := os.ReadDir(utils.DataDir)
 	for _, file := range files {
 		os.Remove(utils.DataDir + "/" + file.Name())
 	}
-	
+
 	// Re-initialize file handles to clear any cached state between tests
 	InitFileHandles()
 }
@@ -466,6 +466,15 @@ func TestRenameKey(t *testing.T) {
 	}
 	StoreDataPointBuffer(dataPoint)
 
+	// Verify old key exists in memory state
+	if !allIds.Contains(oldID) {
+		t.Fatal("old key should exist before rename")
+	}
+	oldCount, _ := GetKeyCount(oldID)
+	if oldCount != 1 {
+		t.Fatalf("expected 1 data point for old key, got %d", oldCount)
+	}
+
 	// Rename the key
 	RenameKey(oldID, newID)
 
@@ -504,7 +513,73 @@ func TestRenameKey(t *testing.T) {
 		t.Errorf("New ID %s should be in allIds", newID)
 	}
 
+	// Verify in-memory state transferred
+	if _, ok := idToCountMap.Load(oldID); ok {
+		t.Error("old key count should be removed from idToCountMap")
+	}
+	newCount, ok := GetKeyCount(newID)
+	if !ok || newCount != oldCount {
+		t.Errorf("expected count %d for new key, got %d (ok=%v)", oldCount, newCount, ok)
+	}
+
+	// Verify data can be read from new key
+	points := ReadLastDataPoints(newID, 1)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 data point under new key, got %d", len(points))
+	}
+	if points[0].Value != 42.5 {
+		t.Errorf("expected value 42.5, got %f", points[0].Value)
+	}
+	if points[0].Key != newID {
+		t.Errorf("expected key %s, got %s", newID, points[0].Key)
+	}
+
+	// Verify old key has no data
+	oldPoints := ReadLastDataPoints(oldID, 1)
+	if len(oldPoints) != 0 {
+		t.Errorf("old key should have no data, got %d points", len(oldPoints))
+	}
+
 	RenameKey("", "")
+}
+
+func TestRenameKeyPreservesData(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	oldID := "rename_data_test_old"
+	newID := "rename_data_test_new"
+
+	// Write multiple data points
+	for i := 0; i < 10; i++ {
+		StoreDataPointBuffer(models.DataPoint{
+			Key:       oldID,
+			Timestamp: time.Now().Unix() + int64(i),
+			Value:     float64(i) * 10,
+		})
+	}
+
+	// Verify last value/timestamp before rename
+	lastBefore, _ := lastTimestamp.Load(oldID)
+	valBefore, _ := lastValue.Load(oldID)
+
+	RenameKey(oldID, newID)
+
+	// Verify last value/timestamp migrated
+	lastAfter, ok := lastTimestamp.Load(newID)
+	if !ok || lastAfter != lastBefore {
+		t.Errorf("lastTimestamp not migrated: old=%d new=%d ok=%v", lastBefore, lastAfter, ok)
+	}
+	valAfter, ok := lastValue.Load(newID)
+	if !ok || valAfter != valBefore {
+		t.Errorf("lastValue not migrated: old=%f new=%f ok=%v", valBefore, valAfter, ok)
+	}
+
+	// Read all data from new key
+	points := ReadDataPoints(newID, 0, time.Now().Unix()+100, 0, "avg")
+	if len(points) != 10 {
+		t.Errorf("expected 10 data points under new key, got %d", len(points))
+	}
 }
 
 func TestGetAllIdsWithCount(t *testing.T) {
@@ -668,5 +743,51 @@ func TestCompactKeyEmptyKey(t *testing.T) {
 	err := CompactKey("")
 	if err == nil {
 		t.Error("Expected error for empty key")
+	}
+}
+
+func TestReloadKey(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	// Create a key with data
+	key := "test_reload"
+	StoreDataPointBuffer(models.DataPoint{
+		Key:       key,
+		Timestamp: time.Now().Unix(),
+		Value:     99.9,
+	})
+
+	// Verify key exists
+	if !allIds.Contains(key) {
+		t.Fatal("key should exist before reload")
+	}
+
+	// Reload the key
+	ok := ReloadKey(key)
+	if !ok {
+		t.Error("ReloadKey should return true for existing key")
+	}
+
+	// Verify key still exists and data is accessible
+	if !allIds.Contains(key) {
+		t.Error("key should still exist after reload")
+	}
+
+	points := ReadLastDataPoints(key, 1)
+	if len(points) != 1 || points[0].Value != 99.9 {
+		t.Errorf("data should be preserved after reload: got %d points, value=%f", len(points), points[0].Value)
+	}
+}
+
+func TestReloadKeyEmptyKey(t *testing.T) {
+	if ReloadKey("") {
+		t.Error("ReloadKey should return false for empty key")
+	}
+}
+
+func TestReloadKeyNonExistent(t *testing.T) {
+	if ReloadKey("nonexistent_reload_test") {
+		t.Error("ReloadKey should return false for non-existent key")
 	}
 }

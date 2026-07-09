@@ -103,7 +103,7 @@ func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 		<-stop
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		srv.Shutdown(ctx)
+		_ = srv.Shutdown(ctx)
 	}()
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -8,6 +8,7 @@ import (
 	"gtsdb/models"
 	"gtsdb/utils"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,23 +17,53 @@ import (
 	"sync/atomic"
 )
 
-func writeBinary(file *os.File, data ...interface{}) error {
-	for _, d := range data {
-		err := binary.Write(file, binary.LittleEndian, d)
-		if err != nil {
-			return fmt.Errorf("error writing binary to file: %w", err)
-		}
+// writeRecord writes a timestamp (int64) and value (float64) as a single 16-byte record.
+// Avoids reflection overhead of binary.Write by using direct encoding.
+func writeRecord(file *os.File, timestamp int64, value float64) error {
+	var buf [16]byte
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(timestamp))
+	binary.LittleEndian.PutUint64(buf[8:16], math.Float64bits(value))
+	_, err := file.Write(buf[:])
+	if err != nil {
+		return fmt.Errorf("error writing record to file: %w", err)
 	}
 	return nil
 }
 
-func readBinary(reader io.Reader, data ...interface{}) error {
-	for _, d := range data {
-		err := binary.Read(reader, binary.LittleEndian, d)
-		if err != nil {
-			return err
-		}
+// writeIndexEntry writes a timestamp (int64) and file offset (int64) as a 16-byte index entry.
+func writeIndexEntry(file *os.File, timestamp int64, offset int64) error {
+	var buf [16]byte
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(timestamp))
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(offset))
+	_, err := file.Write(buf[:])
+	if err != nil {
+		return fmt.Errorf("error writing index entry to file: %w", err)
 	}
+	return nil
+}
+
+// readRecord reads a 16-byte record into timestamp and value pointers.
+// Avoids reflection overhead of binary.Read by using direct decoding.
+func readRecord(reader io.Reader, timestamp *int64, value *float64) error {
+	var buf [16]byte
+	_, err := io.ReadFull(reader, buf[:])
+	if err != nil {
+		return err
+	}
+	*timestamp = int64(binary.LittleEndian.Uint64(buf[0:8]))
+	*value = math.Float64frombits(binary.LittleEndian.Uint64(buf[8:16]))
+	return nil
+}
+
+// readIndexEntry reads a 16-byte index entry.
+func readIndexEntry(reader io.Reader, timestamp *int64, offset *int64) error {
+	var buf [16]byte
+	_, err := io.ReadFull(reader, buf[:])
+	if err != nil {
+		return err
+	}
+	*timestamp = int64(binary.LittleEndian.Uint64(buf[0:8]))
+	*offset = int64(binary.LittleEndian.Uint64(buf[8:16]))
 	return nil
 }
 
@@ -48,7 +79,7 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 		return
 	}
 	for _, dataPoint := range dataPoints {
-		if err := writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value); err != nil {
+		if err := writeRecord(dataFile, dataPoint.Timestamp, dataPoint.Value); err != nil {
 			utils.Error("Failed to write data point for %s: %v", dataPointId, err)
 			return
 		}
@@ -67,7 +98,9 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 		}
 	}
 	// Sync once after all points are written instead of per-point
-	dataFile.Sync()
+	if err := dataFile.Sync(); err != nil {
+		utils.Error("Failed to sync data file for %s: %v", dataPointId, err)
+	}
 }
 
 func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.File]) *os.File {
@@ -136,7 +169,9 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	_, err = file.Seek(seekPosition, io.SeekStart)
 	if err != nil {
 		utils.Error("Error seeking to position %d: %v", seekPosition, err)
-		file.Seek(0, io.SeekStart)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			utils.Error("Error seeking file: %v", err)
+		}
 	}
 
 	reader := bufio.NewReader(file)
@@ -145,9 +180,9 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	for {
 		var timestamp int64
 		var value float64
-		err := readBinary(reader, &timestamp, &value)
+		err := readRecord(reader, &timestamp, &value)
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
 			}
 			utils.Error("Error reading file: %v", err)
@@ -165,7 +200,7 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 }
 
 func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) error {
-	return writeBinary(indexFile, timestamp, offset)
+	return writeIndexEntry(indexFile, timestamp, offset)
 }
 
 func readFiledDataPoints(id string, startTime int64, endTime int64) []models.DataPoint {
@@ -174,13 +209,13 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 		return nil
 	}
 	var dataPoints []models.DataPoint
-	reader := bufio.NewReader(file)
+	reader := bufio.NewReaderSize(file, 64*1024)
 
 	indexFilename := id + ".idx"
 	indexFileInterface, ok := indexFileHandles.Get(indexFilename)
 	if ok {
 		indexFile := indexFileInterface
-		indexReader := bufio.NewReader(indexFile)
+		indexReader := bufio.NewReaderSize(indexFile, 64*1024)
 		offset := int64(0)
 
 		_, err := indexFile.Seek(0, io.SeekStart)
@@ -192,14 +227,13 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 		for {
 			var timestamp int64
 			var fileOffset int64
-			err := readBinary(indexReader, &timestamp, &fileOffset)
+			err := readIndexEntry(indexReader, &timestamp, &fileOffset)
 			if err != nil {
-				if err == io.EOF {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
 					break
-				} else {
-					utils.Error("Error reading index file: %v", err)
-					return nil
 				}
+				utils.Error("Error reading index file: %v", err)
+				return nil
 			}
 
 			if timestamp > startTime {
@@ -224,9 +258,9 @@ func readFiledDataPoints(id string, startTime int64, endTime int64) []models.Dat
 	for {
 		var timestamp int64
 		var value float64
-		err := readBinary(reader, &timestamp, &value)
+		err := readRecord(reader, &timestamp, &value)
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
 			}
 			utils.Error("Error reading file: %v", err)
@@ -259,9 +293,9 @@ func readBufferedDataPoints(id string, startTime, endTime int64) []models.DataPo
 		return []models.DataPoint{}
 	}
 
-	var result []models.DataPoint
+	result := make([]models.DataPoint, 0, rb.Size())
 	for i := 0; i < rb.Size(); i++ {
-		dataPoint := rb.Get(i)
+		dataPoint, _ := rb.Get(i)
 		dataPoint.Key = id
 		if dataPoint.Timestamp >= startTime && dataPoint.Timestamp <= endTime {
 			result = append(result, dataPoint)
@@ -301,7 +335,7 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 
 	result := make([]models.DataPoint, count)
 	for i := 0; i < count; i++ {
-		result[i] = rb.Get(rb.Size() - count + i)
+		result[i], _ = rb.Get(rb.Size() - count + i)
 	}
 	return result
 }
@@ -311,116 +345,115 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 		return dataPoints
 	}
 
-	// For percentile-based aggregations, we need to collect values per interval
 	needsValueCollection := aggregation == "median" || aggregation == "p50" || aggregation == "p95" || aggregation == "p99"
 
 	var downsampled []models.DataPoint
 	intervalStart := dataPoints[0].Timestamp
-	intervalSum := 0.0
-	intervalCount := 0
+	intervalSum := dataPoints[0].Value
+	intervalCount := 1
 	intervalMin := dataPoints[0].Value
 	intervalMax := dataPoints[0].Value
 	intervalFirst := dataPoints[0].Value
 	intervalLast := dataPoints[0].Value
 	var intervalValues []float64
+	if needsValueCollection {
+		intervalValues = []float64{dataPoints[0].Value}
+	}
 
-	flushInterval := func(dp models.DataPoint) {
-		if intervalCount == 0 {
-			return
+	for i := 1; i < len(dataPoints); i++ {
+		dp := dataPoints[i]
+		if dp.Timestamp-intervalStart >= int64(downsample) {
+			// flush current interval
+			value := computeAggregate(aggregation, intervalSum, float64(intervalCount), intervalMin, intervalMax, intervalFirst, intervalLast, intervalValues)
+			downsampled = append(downsampled, models.DataPoint{
+				Key: dp.Key, Timestamp: intervalStart, Value: value,
+			})
+			// reset interval
+			intervalStart = dp.Timestamp
+			intervalSum = dp.Value
+			intervalCount = 1
+			intervalMin = dp.Value
+			intervalMax = dp.Value
+			intervalFirst = dp.Value
+			intervalLast = dp.Value
+			if needsValueCollection {
+				intervalValues = []float64{dp.Value}
+			}
+		} else {
+			intervalSum += dp.Value
+			intervalCount++
+			if dp.Value < intervalMin {
+				intervalMin = dp.Value
+			}
+			if dp.Value > intervalMax {
+				intervalMax = dp.Value
+			}
+			intervalLast = dp.Value
+			if needsValueCollection {
+				intervalValues = append(intervalValues, dp.Value)
+			}
 		}
-		var value float64
-		switch aggregation {
-		case "avg":
-			value = intervalSum / float64(intervalCount)
-		case "sum":
-			value = intervalSum
-		case "min":
-			value = intervalMin
-		case "max":
-			value = intervalMax
-		case "first":
-			value = intervalFirst
-		case "last":
-			value = intervalLast
-		case "count":
-			value = float64(intervalCount)
-		case "median", "p50":
-			if len(intervalValues) > 0 {
-				sort.Float64s(intervalValues)
-				value = intervalValues[len(intervalValues)/2]
-			}
-		case "p95":
-			if len(intervalValues) > 0 {
-				sort.Float64s(intervalValues)
-				idx := int(float64(len(intervalValues)) * 0.95)
-				if idx >= len(intervalValues) {
-					idx = len(intervalValues) - 1
-				}
-				value = intervalValues[idx]
-			}
-		case "p99":
-			if len(intervalValues) > 0 {
-				sort.Float64s(intervalValues)
-				idx := int(float64(len(intervalValues)) * 0.99)
-				if idx >= len(intervalValues) {
-					idx = len(intervalValues) - 1
-				}
-				value = intervalValues[idx]
-			}
-		default:
-			value = intervalSum / float64(intervalCount)
-		}
+	}
+
+	// flush final interval
+	if intervalCount > 0 {
+		lastDp := dataPoints[len(dataPoints)-1]
+		value := computeAggregate(aggregation, intervalSum, float64(intervalCount), intervalMin, intervalMax, intervalFirst, intervalLast, intervalValues)
 		downsampled = append(downsampled, models.DataPoint{
-			Key:       dp.Key,
-			Timestamp: intervalStart,
-			Value:     value,
+			Key: lastDp.Key, Timestamp: intervalStart, Value: value,
 		})
 	}
 
-	resetInterval := func(dp models.DataPoint) {
-		intervalStart = dp.Timestamp
-		intervalSum = dp.Value
-		intervalCount = 1
-		intervalMin = dp.Value
-		intervalMax = dp.Value
-		intervalFirst = dp.Value
-		intervalLast = dp.Value
-		if needsValueCollection {
-			intervalValues = []float64{dp.Value}
-		}
-	}
-
-	addToInterval := func(dp models.DataPoint) {
-		intervalSum += dp.Value
-		intervalCount++
-		if dp.Value < intervalMin {
-			intervalMin = dp.Value
-		}
-		if dp.Value > intervalMax {
-			intervalMax = dp.Value
-		}
-		intervalLast = dp.Value
-		if needsValueCollection {
-			intervalValues = append(intervalValues, dp.Value)
-		}
-	}
-
-	resetInterval(dataPoints[0])
-
-	for _, dp := range dataPoints[1:] {
-		if dp.Timestamp-intervalStart >= int64(downsample) {
-			flushInterval(dp)
-			resetInterval(dp)
-		} else {
-			addToInterval(dp)
-		}
-	}
-
-	if intervalCount > 0 {
-		flushInterval(dataPoints[len(dataPoints)-1])
-	}
-
 	return downsampled
+}
+
+// computeAggregate calculates the aggregate value for an interval.
+// Separated to avoid closure allocation in the hot path.
+func computeAggregate(aggregation string, sum, count float64, min, max, first, last float64, values []float64) float64 {
+	switch aggregation {
+	case "avg":
+		return sum / count
+	case "sum":
+		return sum
+	case "min":
+		return min
+	case "max":
+		return max
+	case "first":
+		return first
+	case "last":
+		return last
+	case "count":
+		return count
+	case "median", "p50":
+		if len(values) > 0 {
+			sort.Float64s(values)
+			return values[len(values)/2]
+		}
+		return 0
+	case "p95":
+		if len(values) > 0 {
+			sort.Float64s(values)
+			idx := int(float64(len(values)) * 0.95)
+			if idx >= len(values) {
+				idx = len(values) - 1
+			}
+			return values[idx]
+		}
+		return 0
+	case "p99":
+		if len(values) > 0 {
+			sort.Float64s(values)
+			idx := int(float64(len(values)) * 0.99)
+			if idx >= len(values) {
+				idx = len(values) - 1
+			}
+			return values[idx]
+		}
+		return 0
+	default:
+		return sum / count
+	}
 }
 
 // InitFileHandles initializes the file handle LRUs with the configured capacity

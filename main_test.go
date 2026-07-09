@@ -274,7 +274,7 @@ func TestMainIntegration(t *testing.T) {
 
 		// Send interrupt signal
 		p, _ := os.FindProcess(os.Getpid())
-		p.Signal(os.Interrupt)
+		_ = p.Signal(os.Interrupt)
 
 		done <- true
 	}()
@@ -315,7 +315,7 @@ data = "` + tmpDir + `"`
 			t.Error(err)
 			return
 		}
-		p.Signal(os.Interrupt)
+		_ = p.Signal(os.Interrupt)
 		done <- true
 	}()
 

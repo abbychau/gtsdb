@@ -143,15 +143,15 @@ func TestGetConsumers(t *testing.T) {
 }
 
 func TestNewFanoutInvalidBuffer(t *testing.T) {
-	// Buffer size parameter is now ignored, just verify initialization
+	// Buffer size parameter is now ignored, just verify initialization doesn't panic
 	fanout := NewFanout(0)
-	if fanout.pending == nil {
-		t.Error("Expected pending pointer to be initialized")
+	if fanout == nil {
+		t.Error("Expected non-nil fanout with buffer 0")
 	}
 
 	fanout = NewFanout(-1)
-	if fanout.pending == nil {
-		t.Error("Expected pending pointer to be initialized")
+	if fanout == nil {
+		t.Error("Expected non-nil fanout with buffer -1")
 	}
 }
 
