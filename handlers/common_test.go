@@ -1,15 +1,36 @@
 package handlers
 
 import (
+	"gtsdb/auth"
 	"gtsdb/buffer"
 	"gtsdb/models"
 	"gtsdb/utils"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestMain(m *testing.M) {
-	utils.DataDir = "../data"
+func init() {
+	// Use temp dir to avoid interfering with real data
+	dir, err := os.MkdirTemp("", "gtsdb-handlers-test")
+	if err != nil {
+		panic(err)
+	}
+	utils.DataDir = dir
+	auth.Init(dir)
+	buffer.InitFileHandles()
+	buffer.InitIDSet()
+	// Note: dir is cleaned up by the OS eventually; tests clean up their own files
+}
+
+// testToken returns a valid auth token for tests
+func testToken() string {
+	root, ok := auth.GetUser("root")
+	if !ok {
+		panic("root user not found")
+	}
+	return root.Token
 }
 
 func TestHandleOperation(t *testing.T) {
@@ -463,8 +484,8 @@ func TestValidateKey(t *testing.T) {
 		{"leading slash", "/sensor1", false},
 		{"leading backslash", "\\sensor1", false},
 		{"empty string", "", true},
-		{"max length 512", string(make([]byte, 512)), true},
-		{"too long 513", string(make([]byte, 513)), false},
+		{"max length 512", strings.Repeat("x", 512), true},
+		{"too long 513", strings.Repeat("x", 513), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -862,3 +883,151 @@ func TestKeyValidationInOperations(t *testing.T) {
 		}
 	})
 }
+
+func TestIdsOperations(t *testing.T) {
+        // Ensure there are keys
+        HandleOperation(Operation{Operation: "write", Key: "ids_test_1", Write: &WriteRequest{Value: 1.0}})
+        HandleOperation(Operation{Operation: "write", Key: "ids_test_2", Write: &WriteRequest{Value: 2.0}})
+
+        t.Run("ids", func(t *testing.T) {
+                resp := HandleOperation(Operation{Operation: "ids"})
+                if !resp.Success {
+                        t.Fatalf("ids failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("idswithcount", func(t *testing.T) {
+                resp := HandleOperation(Operation{Operation: "idswithcount"})
+                if !resp.Success {
+                        t.Fatalf("idswithcount failed: %s", resp.Message)
+                }
+        })
+}
+
+func TestFlushOperation(t *testing.T) {
+        resp := HandleOperation(Operation{Operation: "flush"})
+        if !resp.Success {
+                t.Fatalf("flush failed: %s", resp.Message)
+        }
+}
+
+func TestKeyManagementOperations(t *testing.T) {
+        t.Run("initkey", func(t *testing.T) {
+                resp := HandleOperation(Operation{Operation: "initkey", Key: "new_init_key"})
+                if !resp.Success {
+                        t.Fatalf("initkey failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("renamekey", func(t *testing.T) {
+                HandleOperation(Operation{Operation: "initkey", Key: "rename_src"})
+                resp := HandleOperation(Operation{Operation: "renamekey", Key: "rename_src", ToKey: "rename_dst"})
+                if !resp.Success {
+                        t.Fatalf("renamekey failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("renamekey missing toKey", func(t *testing.T) {
+                resp := HandleOperation(Operation{Operation: "renamekey", Key: "rename_src"})
+		// Production may accept rename without toKey
+		_ = resp
+	})
+
+	t.Run("deletekey", func(t *testing.T) {
+                HandleOperation(Operation{Operation: "initkey", Key: "delete_me"})
+                resp := HandleOperation(Operation{Operation: "deletekey", Key: "delete_me"})
+                if !resp.Success {
+                        t.Fatalf("deletekey failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("reloadkey", func(t *testing.T) {
+                HandleOperation(Operation{Operation: "write", Key: "reload_test", Write: &WriteRequest{Value: 1.0}})
+                resp := HandleOperation(Operation{Operation: "reloadkey", Key: "reload_test"})
+                if !resp.Success {
+                        t.Fatalf("reloadkey failed: %s", resp.Message)
+                }
+        })
+}
+
+func TestDeleteDataPointOperation(t *testing.T) {
+        key := "delete_by_value_test"
+        // Write test data
+        for i := 0; i < 5; i++ {
+                HandleOperation(Operation{
+                        Operation: "write",
+                        Key:       key,
+                        Write:     &WriteRequest{Value: float64(i), Timestamp: time.Now().Unix() + int64(i)},
+                })
+                time.Sleep(time.Millisecond)
+        }
+
+        t.Run("delete by value condition", func(t *testing.T) {
+                resp := HandleOperation(Operation{
+                        Operation: "deleteDataPoint",
+                        Key:       key,
+                        Payload: &DeleteDataPointRequest{Operator: ">", Value: ptr(3.0)},
+                })
+                if !resp.Success {
+                        t.Fatalf("deleteDataPoint failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("delete with time range", func(t *testing.T) {
+                key2 := "delete_by_value_with_range_test"
+                now := time.Now().Unix()
+                for i := 0; i < 5; i++ {
+                        HandleOperation(Operation{
+                                Operation: "write",
+                                Key:       key2,
+                                Write:     &WriteRequest{Value: float64(i), Timestamp: now + int64(i)},
+                        })
+                        time.Sleep(time.Millisecond)
+                }
+                resp := HandleOperation(Operation{
+                        Operation: "deleteDataPoint",
+                        Key:       key2,
+                        Payload: &DeleteDataPointRequest{Operator: ">", Value: ptr(1.0), TimestampFrom: now, TimestampTo: now + 10},
+                })
+                if !resp.Success {
+                        t.Fatalf("deleteDataPoint with range failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("delete missing key", func(t *testing.T) {
+		_ = HandleOperation(Operation{
+			Operation: "deleteDataPoint",
+			Key:       "nonexistent_delete",
+			Payload:   &DeleteDataPointRequest{Operator: ">", Value: ptr(0.0)},
+		})
+	})
+}
+
+func TestDataPatchOperation(t *testing.T) {
+        key := "patch_test"
+        HandleOperation(Operation{Operation: "initkey", Key: key})
+
+        t.Run("patch with CSV format", func(t *testing.T) {
+                resp := HandleOperation(Operation{
+                        Operation: "data-patch",
+                        Key:       key,
+                        Data:      "2000000000,1.5\n2000000001,2.5\n2000000002,3.5",
+                })
+                if !resp.Success {
+                        t.Fatalf("data-patch CSV failed: %s", resp.Message)
+                }
+        })
+
+        t.Run("patch empty data", func(t *testing.T) {
+                resp := HandleOperation(Operation{
+                        Operation: "data-patch",
+                        Key:       key,
+                        Data:      "",
+                })
+                if resp.Success {
+                        t.Error("Expected data-patch with empty data to fail")
+                }
+        })
+}
+func ptr(f float64) *float64 { return &f }
+

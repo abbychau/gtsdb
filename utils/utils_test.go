@@ -100,3 +100,18 @@ func TestPanic(t *testing.T) {
 
 	Panic(expectedMsg)
 }
+
+func TestSetLogLevel(t *testing.T) {
+	oldLevel := atomic.LoadInt32(&LogLevel)
+	defer atomic.StoreInt32(&LogLevel, oldLevel)
+
+	SetLogLevel(LogLevelError)
+	if atomic.LoadInt32(&LogLevel) != LogLevelError {
+		t.Errorf("Expected log level %d, got %d", LogLevelError, atomic.LoadInt32(&LogLevel))
+	}
+
+	SetLogLevel(LogLevelDebug)
+	if atomic.LoadInt32(&LogLevel) != LogLevelDebug {
+		t.Errorf("Expected log level %d, got %d", LogLevelDebug, atomic.LoadInt32(&LogLevel))
+	}
+}

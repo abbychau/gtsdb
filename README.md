@@ -1,38 +1,42 @@
-# Golang Dead Simple Timeseries Database
+# GTSDB — Golang Dead Simple Timeseries Database
 
-<img width="768" height="768" alt="image" src="https://github.com/user-attachments/assets/1eb70120-4748-443f-b358-0bad20b43004" />
+<p align="center">
+  <img width="256" height="256" alt="GTSDB Hamster" src="https://github.com/user-attachments/assets/1eb70120-4748-443f-b358-0bad20b43004" />
+</p>
 
+<p align="center">
+  <a href="https://github.com/abbychau/gtsdb/actions"><img alt="CI" src="https://github.com/abbychau/gtsdb/actions/workflows/go.yml/badge.svg" /></a>
+  <a href="./docs/coverage-full.svg"><img alt="Coverage" src="./docs/coverage.svg" /></a>
+  <a href="https://gtsdb-admin.vercel.app/"><img alt="Admin Tool" src="https://img.shields.io/badge/admin%20tool-demo-blue" /></a>
+  <a href="https://github.com/abbychau/gtsdb/releases"><img alt="Release" src="https://img.shields.io/github/v/release/abbychau/gtsdb" /></a>
+</p>
 
-[![coverage](/docs/coverage.svg)](./docs/coverage-full.svg)
+A simple, high-performance timeseries database for IoT and edge computing. **HTTP + TCP**, **sub-millisecond reads**, **233× faster than InfluxDB on writes**, **Gorilla compression**.
 
-## Introduction
+## Why GTSDB?
 
-This is a simple timeseries database written in Golang. It is designed to be simple and easy to use. It is designed to be used in IoT and other applications where you need to store timeseries data.
+Traditional databases write to WAL, then copy to disk blocks, then update indexes — triple the IO. GTSDB takes a different approach:
 
-Simple is not only in terms of usage but also in terms of a fundamentally new ways of storing data.
+```
+Traditional:   WAL → Memory → Disk Blocks → Index
+GTSDB:         WAL → Index (if needed) ─── read directly from WAL
+```
 
-Let's compare it with other databases, usually, a database do these things:
-1. Write data to WAL (Write Ahead Log) into disk
-2. Stream IO to memory
-3. Do some internal processing like indexing and caching
-4. Write data to disk by blocks, fsync to disk for durability
-5. Update or erase WAL cursor (maybe an offset or ID)
-6. When disaster strikes, read data from disk and replay WAL to recover data
-7. Read data from index and file blocks
+- **WAL is the database.** No separate block storage. No double-write penalty.
+- **Indexes are optional.** Created on-demand for fast time-range queries.
+- **Result:** Less IO, less memory, simpler code, crazy fast.
 
-I think in a different way. I think, if WAL is anyway needed for a production grade database, why not just use WAL for everything:
-1. Write data to WAL
-2. Create indexes conditionally
-3. Read data from WAL and indexes
+### InfluxDB 2.9.1 vs GTSDB (i7-13700KF, Windows)
 
-This way, we saves a lot of IO and MEMORY USAGE. That's why I call it a dead simple timeseries database. I don't scarifice durability. And reading from Index is still O(log n).
+| Benchmark | GTSDB | InfluxDB 2.9.1 | GTSDB faster by |
+|-----------|-------|----------------|-----------------|
+| Write 10k sequential | **21.76 ms** | 5,070 ms | **233×** |
+| Read latest data | **<1 ms** | 4.48 ms | sub-ms |
+| Read 10k queries | **205 ms** | 967 ms | **4.7×** |
+| Multi-Write 10k parallel | **51 ms** | 851 ms | **16.6×** |
+| Storage (5,000 points) | **9.8 KB** | 78.1 KB | **7.98×** |
 
-I don't want to say this is perfect. So here is the tradeoff: "GTSDB needs more file handles than other databases" because it keeps WAL open for reading and writing, but I think it's worth it, especially for weak hardwares. And more importantly, we can make a LRU of file handles when it is REALLY needed.
-
-You can see the performance of this database in the performance section. (It is way better than you can expect by this design even it's just in Golang)
-
-Am I going to write it in Rust/C++/Zig? Yes. I love Rust but GTSDB is still highly experimental and I want to make it more stable before I write it in Rust. I still have a lot of ideas to implement and they sometimes contradict each other. So... I'm still in Golang. Even so, I made it in very high code coverage and with some different internal and end-to-end benchmarks. If you want to use it in production, you can use it. Just make sure to checkout a git hash that is with a green tick in the CI. 
-
+*10 sensors × 1,000 points each. GTSDB over TCP, InfluxDB over HTTP. See [benchmark repo](https://github.com/abbychau/gtsdb-benchmark).*
 
 ## Quick Start
 
@@ -40,11 +44,201 @@ Am I going to write it in Rust/C++/Zig? Yes. I love Rust but GTSDB is still high
 # 1. Run the server
 go run .
 
-# 2. Get the auto-generated root token from the logs:
+# 2. The server starts on TCP :5555 and HTTP :5556.
+#    Check the logs for the auto-generated root token:
 #    "Created default root user with token: abc123..."
 
-# 3. Use the API (see docs/ for details)
+# 3. Write data
+curl -X POST http://localhost:5556/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"operation":"write","key":"sensor1","write":{"value":42.5}}'
+
+# 4. Read latest 10 records
+curl -X POST http://localhost:5556/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"operation":"read","key":"sensor1","read":{"lastx":10}}'
 ```
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **WAL-First Design** | WAL is the primary storage — no double-write, minimal IO |
+| **Gorilla Compression** | Facebook's time-series algorithm — **8× smaller** files |
+| **HTTP + TCP** | Dual protocol, identical JSON API |
+| **Prometheus Metrics** | Built-in `/health` and `/metrics` endpoints |
+| **Real-time PubSub** | Subscribe to keys, receive updates via SSE (NSQ-like) |
+| **Batch Write** | Up to 10,000 points in a single call |
+| **Export** | CSV or JSON export with time-range filtering |
+| **Downsampling** | avg, sum, min, max, first, last, count, median (p50), p95, p99 |
+| **~12 MB Memory** | Indexes on SSD, minimal RAM footprint |
+| **Multi-User Auth** | Token-based authentication with namespaces |
+| **Cross-Platform** | Windows, Linux, macOS — single binary |
+
+## API Overview
+
+### HTTP (port 5556)
+
+All operations via `POST /` with `Authorization: Bearer <token>` header.
+
+**Write a data point:**
+```json
+{
+    "operation": "write",
+    "key": "sensor1",
+    "write": { "value": 42.5 }
+}
+```
+
+**Read latest data:**
+```json
+{
+    "operation": "read",
+    "key": "sensor1",
+    "read": { "lastx": 10 }
+}
+```
+
+**Read with time range & downsampling:**
+```json
+{
+    "operation": "read",
+    "key": "sensor1",
+    "read": {
+        "start_timestamp": 1717965210,
+        "end_timestamp": 1717965211,
+        "downsampling": 3
+    }
+}
+```
+
+**Batch write (up to 10,000 points):**
+```json
+{
+    "operation": "batch-write",
+    "points": [
+        { "key": "sensor1", "value": 42.5, "timestamp": 1717965210 },
+        { "key": "sensor2", "value": 99.9, "timestamp": 1717965210 }
+    ]
+}
+```
+
+**Export as CSV:**
+```json
+{
+    "operation": "export",
+    "key": "sensor1",
+    "export": { "format": "csv", "lastx": 100 }
+}
+```
+
+| Operation | Description |
+|-----------|-------------|
+| `write` | Store a single data point |
+| `batch-write` | Write up to 10,000 points across multiple keys |
+| `read` / `multi-read` | Read by time range or last N records |
+| `export` | Export data as CSV or JSON |
+| `data-patch` | Bulk upsert (CSV or JSON array) |
+| `deleteDataPoint` | Delete by value condition and time range |
+| `ids` / `idswithcount` | List all keys |
+| `subscribe` / `unsubscribe` | Real-time SSE notifications |
+| `compact` | Compact WAL with Gorilla compression |
+| `initkey` / `renamekey` / `deletekey` / `reloadkey` | Key management |
+| `serverinfo` | Server diagnostics (uptime, memory, goroutines) |
+| `adduser` / `resetkey` | User management (root only) |
+| `flush` | Flush all data to disk |
+
+**Health & Monitoring (no auth required):**
+- `GET /health` — JSON health status
+- `GET /metrics` — Prometheus metrics
+
+### TCP (port 5555)
+
+JSON-line protocol. Same operations as HTTP. See [TCP Protocol](docs/tcp-protocol.md).
+
+## Architecture
+
+```
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  TCP Client   │────▶│  TCP Server       │     │  Fanout Pub/Sub   │
+│  (port 5555)  │     │  (goroutine)      │     │  (SSE push)       │
+└──────────────┘     └──────┬───────────┘     └───────┬──────────┘
+                            │                          │
+┌──────────────┐     ┌──────▼───────────┐             │
+│  HTTP Client  │────▶│  HTTP Server      │     ┌──────▼──────────┐
+│  (port 5556)  │     │  (goroutine)      │────▶│  Handler Layer   │
+└──────────────┘     └──────────────────┘     └──────┬──────────┘
+                                                     │
+                                            ┌────────▼────────┐
+                                            │  Buffer Layer    │
+                                            │  .aof / .idx    │
+                                            │  .aof.gor       │
+                                            └────────┬────────┘
+                                                     │
+                                            ┌────────▼────────┐
+                                            │  File System     │
+                                            └─────────────────┘
+```
+
+## Configuration
+
+Default config: `gtsdb.ini`. Override with command line argument:
+
+```bash
+./gtsdb myconfig.ini
+```
+
+Example `gtsdb.ini`:
+```ini
+[listens]
+tcp = :5555
+http = :5556
+
+[paths]
+data_directory = data
+
+[buffer]
+buffer_size = 700
+compaction_compression = true
+```
+
+See [Configuration Reference](docs/configuration.md) for all options.
+
+## Benchmarks
+
+### Main Benchmark (50% read / 50% write, TCP)
+
+```bash
+go test -benchmem -run=^$ -bench ^BenchmarkMain$ -benchtime=5s
+```
+
+```
+cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
+BenchmarkMain-24    26396    135241 ns/op    4249 B/op    5 allocs/op
+```
+
+This benchmark runs 50% read and 50% write operations to 100 different keys over a single TCP connection.
+
+### Concurrent Data Structures
+
+```bash
+make Benchmark
+```
+
+| Operation | Performance |
+|-----------|------------|
+| Sequential Store | 477 ns/op |
+| Sequential Load | 209 ns/op |
+| Concurrent Store | 256 ns/op |
+| Concurrent Load | 216 ns/op |
+| Concurrent Mixed | 427 ns/op |
+| Set Contains | 12.4 ns/op |
+
+### Full Comparison
+
+See [gtsdb-benchmark](https://github.com/abbychau/gtsdb-benchmark) for GTSDB vs InfluxDB comparison benchmarks.
 
 ## Documentation
 
@@ -57,141 +251,24 @@ go run .
 | [Operations Guide](docs/operations.md) | Complete operations reference |
 | [Cloud User Guide](GTSDB_CLOUD_GUIDE.md) | Multi-user authentication and tenancy |
 
-## Architecture
-
-```
-┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  TCP Client  │────▶│  TCP Server      │     │                  │
-│  (port 5555) │     │  (goroutine)     │     │   Fanout Pub/Sub  │
-└─────────────┘     └──────┬───────────┘     │                  │
-                           │                  └───────┬──────────┘
-┌─────────────┐     ┌──────▼───────────┐            │
-│  HTTP Client │────▶│  HTTP Server     │     ┌──────▼──────────┐
-│  (port 5556) │     │  (goroutine)     │────▶│  Handler Layer  │
-└─────────────┘     └──────────────────┘     └──────┬──────────┘
-                                                    │
-                                           ┌────────▼────────┐
-                                           │  Buffer Layer    │
-                                           │  (WAL + Index)   │
-                                           └────────┬────────┘
-                                                    │
-                                           ┌────────▼────────┐
-                                           │  File System     │
-                                           │  (.aof + .idx)   │
-                                           └─────────────────┘
-```
-
-## API Overview
-
-### HTTP (POST to :5556)
-
-All operations are performed by POSTing JSON to `/` with an `Authorization: Bearer <token>` header.
-
-| Operation | Description |
-|-----------|-------------|
-| `write` | Store a single data point |
-| `batch-write` | Write multiple data points across keys |
-| `read` | Read data points (range or last N) |
-| `multi-read` | Batch read across multiple keys |
-| `export` | Export data as CSV or JSON |
-| `data-patch` | Bulk insert/upsert (CSV or JSON array) |
-| `deleteDataPoint` | Delete data points by value or time range |
-| `ids` / `idswithcount` | List keys |
-| `subscribe` / `unsubscribe` | Real-time notifications (SSE) |
-| `compact` | Compact WAL file for a key |
-| `initkey` / `renamekey` / `deletekey` / `reloadkey` | Key management |
-| `serverinfo` | Server diagnostics |
-| `adduser` / `resetkey` | User management (root only) |
-| `flush` | Flush data to disk |
-
-### Health & Monitoring
-- `GET /health` — JSON health status (no auth)
-- `GET /metrics` — Prometheus metrics (no auth)
-
-See [OpenAPI Specification](docs/openapi.yaml) for full details, or [API Examples](docs/api.http) for runnable REST Client requests.
-
-### TCP (port 5555)
-
-JSON-line protocol with authentication. See [TCP Protocol](docs/tcp-protocol.md) for details.
-
-## Configuration
-
-See [Configuration Reference](docs/configuration.md) for all options.
-
-Default config file: `gtsdb.ini`. Custom config via command line argument:
+## Development
 
 ```bash
-./gtsdb myconfig.ini
-```
-    "operation": "data-patch",
-    "key": "sensor1",
-    "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"
-}
+# Build & run
+go run .
+go build .
 
-# Delete data points for a key by value (optionally in a timestamp range) and auto-patch the data file
-# POST /
-{
-    "operation": "deleteDataPoint",
-    "key": "sensor1",
-    "payload": {
-        "operator": ">",
-        "value": 100,
-        "timestampFrom": 1717965210,
-        "timestampTo": 1717965310
-    }
-}
-```
+# Tests
+go test ./...
+go test ./... -skip=TestMain -coverprofile=docs/coverage -p 1
+make GenerateTest          # Coverage report (HTML + SVG badge)
 
-## Performance
+# Code quality
+golangci-lint run
+make lint-fix
 
-### Database Performance
-
-[Benchmark](https://github.com/abbychau/gtsdb/blob/main/main_test.go#L65)
-
-- Run: `go test -benchmem -run=^$ -bench ^BenchmarkMain$ -benchtime=5s`
-
-```
-goos: windows
-goarch: amd64
-pkg: gtsdb
-cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24         6158864             19707 ns/op         4245 B/op           5 allocs/op
-PASS
-ok      gtsdb   141.340s
-```
-
-
-Explanation:
-- This benchmark does 50% read and 50% write operations to 100 different keys(devices).
-- It performs 249386 operations in 6 seconds. The operations include read and write operations.
-
-
-### Concurrent Internals Performance
-
-- Run: `make benchmark`
-
-```
-goos: windows
-goarch: amd64
-pkg: gtsdb/concurrent
-cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMap/Sequential_Store-24        12363549               477.2 ns/o     154 B/op           6 allocs/op
-BenchmarkMap/Sequential_Load-24         44461207               209.5 ns/o       7 B/op           0 allocs/op
-BenchmarkMap/Concurrent_Store-24        36248278               256.2 ns/o      56 B/op           4 allocs/op
-BenchmarkMap/Concurrent_Load-24         63952998               216.3 ns/o       7 B/op           0 allocs/op
-BenchmarkMap/Concurrent_Mixed-24        18266863               427.2 ns/o      94 B/op           3 allocs/op
-BenchmarkSet_Add-24                     60995383               208.0 ns/o      52 B/op           0 allocs/op
-BenchmarkSet_Contains-24                484518542               12.36 ns/op              0 B/op          0 allocs/op
-BenchmarkSet_ConcurrentAdd-24           43510735               213.0 ns/o      37 B/op           0 allocs/op
-PASS
-ok      gtsdb/concurrent        147.859s
-```
-
-
-## Generate Test Coverage Report
-
-```bash
-make GenerateTest
+# Benchmarks
+make Benchmark             # Concurrent data structures
 ```
 
 ## License

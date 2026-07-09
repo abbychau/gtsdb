@@ -258,6 +258,38 @@ func TestLoadUsersFromFile(t *testing.T) {
 	}
 }
 
+func TestLoadUsersInvalidJSON(t *testing.T) {
+	dir := setupTestDir(t)
+	defer cleanupTestDir(t, dir)
+
+	// Write invalid JSON to users.json
+	if err := os.WriteFile(dir+"/users.json", []byte("not valid json {{{"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	users = make(map[string]User)
+	usersFile = dir + "/users.json"
+	loadUsers() // Should not panic, just log error and return
+
+	// Verify no users were loaded
+	if len(users) != 0 {
+		t.Errorf("Expected 0 users after invalid JSON, got %d", len(users))
+	}
+}
+
+func TestLoadUsersNoFile(t *testing.T) {
+	dir := setupTestDir(t)
+	defer cleanupTestDir(t, dir)
+
+	users = make(map[string]User)
+	usersFile = dir + "/nonexistent.json"
+	loadUsers() // Should not panic, just return
+
+	if len(users) != 0 {
+		t.Errorf("Expected 0 users when file missing, got %d", len(users))
+	}
+}
+
 func TestSaveUsers(t *testing.T) {
 	dir := setupTestDir(t)
 	defer cleanupTestDir(t, dir)

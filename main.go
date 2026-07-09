@@ -133,6 +133,8 @@ func loadConfig(iniFile string) {
 				utils.FileHandleLRUCapacity = capacity
 			}
 		}
+		// Load WAL compression setting
+		utils.CompactionCompression = cfg.Section("buffer").Key("compaction_compression").MustBool(false)
 	}
 
 	utils.Logln(" TCP 監聽地址： ", utils.TcpListenAddr)

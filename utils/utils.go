@@ -22,6 +22,7 @@ var (
 	FileHandleLRUCapacity = 700
 	NoAuthUser            = ""
 	RootToken             = ""
+	CompactionCompression = false
 	LogLevel              = int32(LogLevelInfo) // default: info and above
 )
 

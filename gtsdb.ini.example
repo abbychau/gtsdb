@@ -11,6 +11,11 @@ tcp = 127.0.0.1:5555
 ; Lower values use less system resources but may impact performance
 ; file_handle_lru_capacity = 700
 
+; Gorilla time-series compression during compaction (optional, default: false)
+; When enabled, compacted AOF files are compressed using Facebook's Gorilla algorithm
+; achieving ~8x space reduction with negligible read overhead (~85µs per 5000 points)
+; compaction_compression = true
+
 [auth]
 ; User to use when no authentication is provided (optional, default: empty)
 ; If set (e.g. "root"), unauthenticated requests will be treated as this user

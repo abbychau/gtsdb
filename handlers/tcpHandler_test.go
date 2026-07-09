@@ -39,7 +39,8 @@ func TestHandleTcpConnection(t *testing.T) {
 	}{
 		{
 			name: "subscribe to device",
-			input: `{"operation":"subscribe","key":"dev1"}
+			input: `{"operation":"auth","key":"` + testToken() + `"}
+{"operation":"subscribe","key":"dev1"}
 `,
 			validate: func(t *testing.T, f *fanout.Fanout) {
 				if len(f.GetConsumers()) == 0 {
@@ -49,7 +50,8 @@ func TestHandleTcpConnection(t *testing.T) {
 		},
 		{
 			name: "subscribe and unsubscribe",
-			input: `{"operation":"subscribe","key":"dev1"}
+			input: `{"operation":"auth","key":"` + testToken() + `"}
+{"operation":"subscribe","key":"dev1"}
 {"operation":"unsubscribe","key":"dev1"}
 `,
 			validate: func(t *testing.T, f *fanout.Fanout) {
@@ -60,7 +62,8 @@ func TestHandleTcpConnection(t *testing.T) {
 		},
 		{
 			name: "write operation",
-			input: `{"operation":"write","key":"dev1","write":{"value":42.0}}
+			input: `{"operation":"auth","key":"` + testToken() + `"}
+{"operation":"write","key":"dev1","write":{"value":42.0}}
 `,
 			validate: func(t *testing.T, f *fanout.Fanout) {
 				// Validation happens through response in real connection

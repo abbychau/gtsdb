@@ -469,7 +469,12 @@ func ReadDataPoints(id string, startTime, endTime int64, downsample int, aggrega
 
 	dataPoints := readBufferedDataPoints(id, startTime, endTime)
 	if len(dataPoints) == 0 {
-		dataPoints = readFiledDataPoints(id, startTime, endTime)
+		// Try compressed WAL first, fall back to raw AOF
+		if compressed, err := readCompressedDataPoints(id, startTime, endTime); err == nil && len(compressed) > 0 {
+			dataPoints = compressed
+		} else {
+			dataPoints = readFiledDataPoints(id, startTime, endTime)
+		}
 	}
 
 	if downsample > 1 {
@@ -673,6 +678,13 @@ func CompactKey(key string) error {
 	// Re-open file handles and update caches
 	prepareFileHandles(key+".aof", dataFileHandles)
 	prepareFileHandles(key+".idx", indexFileHandles)
+
+	// Write Gorilla-compressed version if enabled
+	if utils.CompactionCompression {
+		if err := writeCompressedWAL(key, dataPoints); err != nil {
+			utils.Error("Failed to write compressed WAL for %s: %v", key, err)
+		}
+	}
 
 	if len(dataPoints) > 0 {
 		lastValue.Store(key, dataPoints[len(dataPoints)-1].Value)
