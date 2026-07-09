@@ -85,9 +85,9 @@ func EncodeBlock(points []models.DataPoint) ([]byte, error) {
 
 	w := newBitWriter(256)
 
-	var prevTs int64 = points[0].Timestamp
+	var prevTs = points[0].Timestamp
 	var prevDelta int64 = 0
-	var prevVal uint64 = math.Float64bits(points[0].Value)
+	var prevVal = math.Float64bits(points[0].Value)
 
 	for i := 1; i < len(points); i++ {
 		// --- Timestamp: delta-of-delta ---
@@ -172,9 +172,9 @@ func DecodeBlock(data []byte) ([]models.DataPoint, error) {
 	result := make([]models.DataPoint, 0, numRecords)
 	result = append(result, models.DataPoint{Timestamp: firstTs, Value: firstVal})
 
-	var prevTs int64 = firstTs
+	var prevTs = firstTs
 	var prevDelta int64 = 0
-	var prevVal uint64 = math.Float64bits(firstVal)
+	var prevVal = math.Float64bits(firstVal)
 
 	r := newBitReader(data[20:])
 
