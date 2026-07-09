@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="750" height="406">
-  <rect width="750" height="406" fill="#fff"/>
-  <text x="10" y="25" font-family="monospace" font-size="15" font-weight="bold" fill="#333">Coverage Report: 86.4%</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="490">
+  <rect width="750" height="490" fill="#fff"/>
+  <text x="10" y="25" font-family="monospace" font-size="15" font-weight="bold" fill="#333">Coverage Report: 79.6%</text>
   <text x="10" y="55" font-family="monospace" font-size="12" fill="#333">auth/auth.go</text>
   <rect x="220" y="43" width="350" height="20" rx="2" fill="#4bb543"/>
   <rect x="570" y="43" width="50" height="20" rx="2" fill="#eee"/>
@@ -37,16 +37,28 @@
   <rect x="220" y="267" width="400" height="20" rx="2" fill="#4bb543"/>
   <rect x="620" y="267" width="0" height="20" rx="2" fill="#eee"/>
   <text x="630" y="279" font-family="monospace" font-size="12" fill="#333">100.0%</text>
-  <text x="10" y="307" font-family="monospace" font-size="12" fill="#333">main.go</text>
-  <rect x="220" y="295" width="248" height="20" rx="2" fill="#d4c43a"/>
-  <rect x="468" y="295" width="152" height="20" rx="2" fill="#eee"/>
-  <text x="630" y="307" font-family="monospace" font-size="12" fill="#333">62.1%</text>
-  <text x="10" y="335" font-family="monospace" font-size="12" fill="#333">synchronous/ringbuffer.go</text>
-  <rect x="220" y="323" width="400" height="20" rx="2" fill="#4bb543"/>
-  <rect x="620" y="323" width="0" height="20" rx="2" fill="#eee"/>
-  <text x="630" y="335" font-family="monospace" font-size="12" fill="#333">100.0%</text>
-  <text x="10" y="363" font-family="monospace" font-size="12" fill="#333">utils/utils.go</text>
-  <rect x="220" y="351" width="368" height="20" rx="2" fill="#4bb543"/>
-  <rect x="588" y="351" width="32" height="20" rx="2" fill="#eee"/>
-  <text x="630" y="363" font-family="monospace" font-size="12" fill="#333">92.0%</text>
+  <text x="10" y="307" font-family="monospace" font-size="12" fill="#333">handlers/common.go</text>
+  <rect x="220" y="295" width="318" height="20" rx="2" fill="#d4c43a"/>
+  <rect x="538" y="295" width="82" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="307" font-family="monospace" font-size="12" fill="#333">79.5%</text>
+  <text x="10" y="335" font-family="monospace" font-size="12" fill="#333">handlers/httpHandler.go</text>
+  <rect x="220" y="323" width="196" height="20" rx="2" fill="#b54343"/>
+  <rect x="416" y="323" width="204" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="335" font-family="monospace" font-size="12" fill="#333">49.0%</text>
+  <text x="10" y="363" font-family="monospace" font-size="12" fill="#333">handlers/tcpHandler.go</text>
+  <rect x="220" y="351" width="195" height="20" rx="2" fill="#b54343"/>
+  <rect x="415" y="351" width="205" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="363" font-family="monospace" font-size="12" fill="#333">48.9%</text>
+  <text x="10" y="391" font-family="monospace" font-size="12" fill="#333">main.go</text>
+  <rect x="220" y="379" width="248" height="20" rx="2" fill="#d4c43a"/>
+  <rect x="468" y="379" width="152" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="391" font-family="monospace" font-size="12" fill="#333">62.1%</text>
+  <text x="10" y="419" font-family="monospace" font-size="12" fill="#333">synchronous/ringbuffer.go</text>
+  <rect x="220" y="407" width="400" height="20" rx="2" fill="#4bb543"/>
+  <rect x="620" y="407" width="0" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="419" font-family="monospace" font-size="12" fill="#333">100.0%</text>
+  <text x="10" y="447" font-family="monospace" font-size="12" fill="#333">utils/utils.go</text>
+  <rect x="220" y="435" width="368" height="20" rx="2" fill="#4bb543"/>
+  <rect x="588" y="435" width="32" height="20" rx="2" fill="#eee"/>
+  <text x="630" y="447" font-family="monospace" font-size="12" fill="#333">92.0%</text>
 </svg>
