@@ -138,6 +138,9 @@ func generateSVGBadge(path string, coverage float64) {
     <filter id="shadow">
       <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-opacity="0.15"/>
     </filter>
+    <filter id="text-shadow">
+      <feDropShadow dx="0" dy="0.5" stdDeviation="0.3" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
   </defs>
   <clipPath id="r">
     <rect width="%d" height="20" rx="4" fill="#fff"/>
@@ -147,13 +150,11 @@ func generateSVGBadge(path string, coverage float64) {
     <rect x="%d" width="%d" height="20" fill="%s"/>
     <rect width="%d" height="20" fill="url(#s)"/>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11">
-    <text x="%d" y="14" fill="#000" opacity=".25">%s</text>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" filter="url(#text-shadow)">
     <text x="%d" y="13.5">%s</text>
-    <text x="%d" y="14" fill="#000" opacity=".25">%s</text>
     <text x="%d" y="13.5">%s</text>
   </g>
-</svg>`, totalW, totalW, labelW, labelW, valueW, color, totalW, labelCenter, label, labelCenter, label, valueCenter, value, valueCenter, value)
+</svg>`, totalW, totalW, labelW, labelW, valueW, color, totalW, labelCenter, label, valueCenter, value)
 	os.WriteFile(path, []byte(svg), 0644)
 }
 

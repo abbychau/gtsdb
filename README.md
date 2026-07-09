@@ -160,26 +160,23 @@ JSON-line protocol. Same operations as HTTP. See [TCP Protocol](docs/tcp-protoco
 
 ## Architecture
 
-```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  TCP Client   │────▶│  TCP Server       │     │  Fanout Pub/Sub   │
-│  (port 5555)  │     │  (goroutine)      │     │  (SSE push)       │
-└──────────────┘     └──────┬───────────┘     └───────┬──────────┘
-                            │                          │
-┌──────────────┐     ┌──────▼───────────┐             │
-│  HTTP Client  │────▶│  HTTP Server      │     ┌──────▼──────────┐
-│  (port 5556)  │     │  (goroutine)      │────▶│  Handler Layer   │
-└──────────────┘     └──────────────────┘     └──────┬──────────┘
-                                                     │
-                                            ┌────────▼────────┐
-                                            │  Buffer Layer    │
-                                            │  .aof / .idx    │
-                                            │  .aof.gor       │
-                                            └────────┬────────┘
-                                                     │
-                                            ┌────────▼────────┐
-                                            │  File System     │
-                                            └─────────────────┘
+```mermaid
+graph TD
+    TC[TCP Client<br/>port 5555] --> TS[TCP Server<br/>goroutine]
+    HC[HTTP Client<br/>port 5556] --> HS[HTTP Server<br/>goroutine]
+    
+    TS --> HL[Handler Layer]
+    HS --> HL
+    HL --> FO[Fanout Pub/Sub<br/>SSE push]
+    
+    HL --> BL[Buffer Layer]
+    BL --> WAL[.aof<br/>Write-Ahead Log]
+    BL --> IDX[.idx<br/>Index]
+    BL --> GOR[.aof.gor<br/>Gorilla Compressed]
+    
+    WAL --> FS[File System]
+    IDX --> FS
+    GOR --> FS
 ```
 
 ## Configuration

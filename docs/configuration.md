@@ -51,10 +51,12 @@ data/
 ├── root/              # Root user's data
 │   ├── sensor1.aof    # WAL data file
 │   ├── sensor1.idx    # Sparse index file
+│   ├── sensor1.aof.gor # Gorilla compressed WAL (after compaction)
 │   └── ...
 └── username/          # Other users' data (isolated by folders)
     ├── sensor1.aof
-    └── sensor1.idx
+    ├── sensor1.idx
+    └── sensor1.aof.gor
 ```
 
 ### `[auth]` — Authentication
@@ -69,6 +71,7 @@ data/
 | Key | Default | Description |
 |-----|---------|-------------|
 | `file_handle_lru_capacity` | `700` | Maximum number of open file handles. Must be less than OS limit (typically 1024 per process on Linux with ulimit). Reduce for weak hardware. |
+| `compaction_compression` | `false` | Enable Facebook Gorilla time-series compression during compaction. Compressed files use `.aof.gor` extension and are ~8× smaller. |
 
 ## Advanced Configuration (Environment Variables)
 
@@ -100,6 +103,7 @@ root_token = "your-secure-root-token-here"
 
 [buffer]
 file_handle_lru_capacity = 700
+compaction_compression = true
 ```
 
 ### Development / Testing
