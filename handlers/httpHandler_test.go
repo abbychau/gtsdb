@@ -277,3 +277,89 @@ func TestHTTPMoreOperations(t *testing.T) {
 		}
 	})
 }
+
+func TestHTTPUserManagement(t *testing.T) {
+	fanoutManager := fanout.NewFanout(10)
+	handler := SetupHTTPRoutes(fanoutManager)
+	token := testToken()
+
+	doPost := func(op Operation) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(op)
+		req := httptest.NewRequest("POST", "/", bytes.NewBuffer(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	t.Run("adduser as root", func(t *testing.T) {
+		rr := doPost(Operation{Operation: "adduser", Key: "newuser"})
+		if rr.Code != http.StatusOK {
+			t.Errorf("adduser returned %d", rr.Code)
+		}
+	})
+
+	t.Run("resetkey as root", func(t *testing.T) {
+		doPost(Operation{Operation: "adduser", Key: "resetme"})
+		rr := doPost(Operation{Operation: "resetkey", Key: "resetme"})
+		if rr.Code != http.StatusOK {
+			t.Errorf("resetkey returned %d", rr.Code)
+		}
+	})
+
+	t.Run("adduser empty key", func(t *testing.T) {
+		rr := doPost(Operation{Operation: "adduser"})
+		if rr.Code != http.StatusOK {
+			t.Errorf("adduser empty returned %d", rr.Code)
+		}
+	})
+}
+
+func TestHTTPMoreReadOps(t *testing.T) {
+	fanoutManager := fanout.NewFanout(10)
+	handler := SetupHTTPRoutes(fanoutManager)
+	token := testToken()
+
+	doPost := func(op Operation) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(op)
+		req := httptest.NewRequest("POST", "/", bytes.NewBuffer(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Write some data first
+	for i := 0; i < 5; i++ {
+		doPost(Operation{Operation: "write", Key: "multi_src", Write: &WriteRequest{Value: float64(i)}})
+	}
+
+	t.Run("multi-read", func(t *testing.T) {
+		rr := doPost(Operation{
+			Operation: "multi-read",
+			Keys:      []string{"multi_src"},
+			Read:      &ReadRequest{LastX: 2},
+		})
+		if rr.Code != http.StatusOK {
+			t.Errorf("multi-read returned %d", rr.Code)
+		}
+	})
+
+	t.Run("idswithcount", func(t *testing.T) {
+		rr := doPost(Operation{Operation: "idswithcount"})
+		if rr.Code != http.StatusOK {
+			t.Errorf("idswithcount returned %d", rr.Code)
+		}
+	})
+
+	t.Run("deleteDataPoint", func(t *testing.T) {
+		rr := doPost(Operation{
+			Operation: "deleteDataPoint",
+			Key:       "multi_src",
+			Payload:   &DeleteDataPointRequest{Operator: ">", Value: ptr(3.0)},
+		})
+		if rr.Code != http.StatusOK {
+			t.Errorf("deleteDataPoint returned %d", rr.Code)
+		}
+	})
+}

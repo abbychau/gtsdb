@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="170" height="28">
   <rect width="170" height="28" rx="4" fill="#0a0a0a"/>
   <text x="12" y="19" font-family="monospace" font-size="13" fill="#fff">Coverage:</text>
-  <text x="90" y="19" font-family="monospace" font-size="13" font-weight="bold" fill="#d4c43a">79.6%</text>
+  <text x="90" y="19" font-family="monospace" font-size="13" font-weight="bold" fill="#4bb543">83.8%</text>
 </svg>
