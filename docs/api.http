@@ -1,134 +1,188 @@
 @hostname = http://localhost:5556
+@token = your-token-here
+
+### Health check (no auth)
+GET {{hostname}}/health
+
+### Prometheus metrics (no auth)
+GET {{hostname}}/metrics
+
+### Server info
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "serverinfo"
+}
+
+### Create a new user (root only)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "adduser",
+    "key": "alice"
+}
+
+### Reset user token (root only)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "resetkey",
+    "key": "alice"
+}
 
 ### Write data
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "write",
-    "key": "a_sensor1",
-    "Write": {
-        "Value": 322424242433333.3333
+    "key": "sensor1",
+    "write": {
+        "value": 42.5
     }
+}
+
+### Write data with timestamp
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "write",
+    "key": "sensor1",
+    "write": {
+        "value": 42.5,
+        "timestamp": 1717965210
+    }
+}
+
+### Batch write (multiple keys, one request)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "batch-write",
+    "points": [
+        {"key": "sensor1", "value": 42.5, "timestamp": 1717965210},
+        {"key": "sensor2", "value": 100.0, "timestamp": 1717965210},
+        {"key": "sensor3", "value": 75.3}
+    ]
 }
 
 ### Read data with time range and downsampling
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "read",
-    "key": "a_sensor1",
-    "Read": {
+    "key": "sensor1",
+    "read": {
         "start_timestamp": 1717965210,
-        "end_timestamp": 1717965211,
-        "downsampling": 3
+        "end_timestamp": 1717965310,
+        "downsampling": 60,
+        "aggregation": "avg"
     }
 }
 
 ### Read last X records
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "read",
-    "key": "a_sensor1",
-    "Read": {
-        "lastx": 1
+    "key": "sensor1",
+    "read": {
+        "lastx": 10
     }
 }
 
-### Subscribe to a key
+### Read with percentile aggregation
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
-    "operation": "subscribe",
-    "key": "sensor1"
+    "operation": "read",
+    "key": "sensor1",
+    "read": {
+        "start_timestamp": 1717965210,
+        "end_timestamp": 1717965310,
+        "downsampling": 60,
+        "aggregation": "p95"
+    }
 }
 
-### Unsubscribe from a key
+### Multi-read data with time range
 POST {{hostname}}/
 Content-Type: application/json
-
-{
-    "operation": "unsubscribe",
-    "key": "sensor1"
-}
-
-### Get All keys
-POST {{hostname}}/
-Content-Type: application/json
-
-{
-    "operation": "keys"
-}
-
-### Flush all data
-POST {{hostname}}/
-Content-Type: application/json
-
-{
-    "operation": "flush"
-}
-
-### Initialize a new key
-POST {{hostname}}/
-Content-Type: application/json
-
-{
-    "operation": "init",
-    "key": "new_sensor"
-}
-
-### Rename a key
-POST {{hostname}}/
-Content-Type: application/json
-
-{
-    "operation": "renamekey",
-    "key": "old_sensor_name",
-    "toKey": "new_sensor_name"
-}
-
-### Delete a key
-POST {{hostname}}/
-Content-Type: application/json
-
-{
-    "operation": "delete",
-    "key": "sensor_to_delete"
-}
-
-### Multi-read data with time range and downsampling
-POST {{hostname}}/
-Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "multi-read",
     "keys": ["sensor1", "sensor2", "sensor3"],
-    "Read": {
+    "read": {
         "start_timestamp": 1717965210,
-        "end_timestamp": 1717965211,
-        "downsampling": 3
+        "end_timestamp": 1717965310,
+        "downsampling": 60
     }
 }
 
 ### Multi-read last X records
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "multi-read",
     "keys": ["sensor1", "sensor2", "sensor3"],
-    "Read": {
+    "read": {
         "lastx": 1
     }
 }
 
-### Patch data points for a key
+### Export data as CSV
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "export",
+    "key": "sensor1",
+    "export": {
+        "format": "csv",
+        "lastx": 100
+    }
+}
+
+### Export data as JSON
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "export",
+    "key": "sensor1",
+    "export": {
+        "format": "json",
+        "start_timestamp": 1717965210,
+        "end_timestamp": 1717965310
+    }
+}
+
+### Patch data points (CSV format)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "data-patch",
@@ -136,9 +190,21 @@ Content-Type: application/json
     "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"
 }
 
-### Delete data points for a key by value (optionally in timestamp range)
+### Patch data points (JSON array format)
 POST {{hostname}}/
 Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "data-patch",
+    "key": "sensor1",
+    "data": "[{\"timestamp\": 1717965210, \"value\": 123.45}, {\"timestamp\": 1717965211, \"value\": 123.46}]"
+}
+
+### Delete data points by value (greater than)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
     "operation": "deleteDataPoint",
@@ -149,4 +215,108 @@ Content-Type: application/json
         "timestampFrom": 1717965210,
         "timestampTo": 1717965310
     }
+}
+
+### Delete data points by value (less than)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "deleteDataPoint",
+    "key": "sensor1",
+    "payload": {
+        "operator": "<",
+        "value": 0,
+        "timestampFrom": 1717965210,
+        "timestampTo": 1717965310
+    }
+}
+
+### Get all keys
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "ids"
+}
+
+### Get all keys with data point counts
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "idswithcount"
+}
+
+### Flush all data
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "flush"
+}
+
+### Initialize a new key
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "initkey",
+    "key": "new_sensor"
+}
+
+### Rename a key
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "renamekey",
+    "key": "old_sensor_name",
+    "tokey": "new_sensor_name"
+}
+
+### Delete a key
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "deletekey",
+    "key": "sensor_to_delete"
+}
+
+### Compact a key (WAL compaction)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "compact",
+    "key": "sensor1"
+}
+
+### Subscribe to a key (SSE stream)
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "subscribe",
+    "key": "sensor1"
+}
+
+### Unsubscribe from a key
+POST {{hostname}}/
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+    "operation": "unsubscribe",
+    "key": "sensor1"
 }

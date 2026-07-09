@@ -24,8 +24,11 @@ var allIds = concurrent.NewSet[string]()
 var lastValue = concurrent.NewMap[string, float64]()
 var lastTimestamp = concurrent.NewMap[string, int64]()
 
+// totalDataPoints tracks the approximate total number of data points across all keys.
+// Used for O(1) metrics reporting.
+var totalDataPoints atomic.Int64
+
 // mutex
 var renameLock sync.Mutex
 var dataPatchLocks = concurrent.NewMap[string, *sync.Mutex]()
 var fileWriteLocks = concurrent.NewMap[string, *sync.Mutex]()
-

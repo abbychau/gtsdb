@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 func InitIDSet() {
@@ -116,6 +117,10 @@ func DeleteKey(dataPointId string) {
 	dataFileHandles.Delete(dfk)
 	indexFileHandles.Delete(ifk)
 	idToRingBufferMap.Delete(dataPointId)
+	// Subtract deleted points from global counter before clearing the per-key count
+	if cnt, ok := idToCountMap.Load(dataPointId); ok {
+		totalDataPoints.Add(-cnt.Load())
+	}
 	idToCountMap.Delete(dataPointId)
 	lastValue.Delete(dataPointId)
 	lastTimestamp.Delete(dataPointId)
@@ -153,6 +158,10 @@ func ReloadKey(dataPointId string) bool {
 	dataFileHandles.Delete(dfk)
 	indexFileHandles.Delete(ifk)
 	idToRingBufferMap.Delete(dataPointId)
+	// Subtract old count before reloading (prepareFileHandles will re-add from file size)
+	if cnt, ok := idToCountMap.Load(dataPointId); ok {
+		totalDataPoints.Add(-cnt.Load())
+	}
 	idToCountMap.Delete(dataPointId)
 	lastValue.Delete(dataPointId)
 	lastTimestamp.Delete(dataPointId)
@@ -303,19 +312,21 @@ func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
 	indexFile := prepareFileHandles(key+".idx", indexFileHandles)
 
 	startOffset := int64(0)
-	if _, err := indexFile.Seek(0, io.SeekStart); err == nil {
-		indexReader := bufio.NewReader(indexFile)
-		for {
-			var ts int64
-			var off int64
-			err := readBinary(indexReader, &ts, &off)
-			if err != nil {
-				break
+	if indexFile != nil {
+		if _, err := indexFile.Seek(0, io.SeekStart); err == nil {
+			indexReader := bufio.NewReader(indexFile)
+			for {
+				var ts int64
+				var off int64
+				err := readBinary(indexReader, &ts, &off)
+				if err != nil {
+					break
+				}
+				if ts > point.Timestamp {
+					break
+				}
+				startOffset = off
 			}
-			if ts > point.Timestamp {
-				break
-			}
-			startOffset = off
 		}
 	}
 
@@ -494,16 +505,155 @@ func GetAllIds() []string {
 	return allIds.Items()
 }
 
+// GetDataFileHandle returns the file handle for a given filename if it exists in the cache
+func GetDataFileHandle(fileName string) (*os.File, bool) {
+	return dataFileHandles.Get(fileName)
+}
+
+// GetKeyCount returns the number of data points for a given key
+func GetKeyCount(key string) (int, bool) {
+	if cnt, ok := idToCountMap.Load(key); ok {
+		return int(cnt.Load()), true
+	}
+	return 0, false
+}
+
+// GetTotalDataPoints returns the approximate total number of data points across all keys.
+// This is maintained as an atomic counter for O(1) metrics access.
+func GetTotalDataPoints() int64 {
+	return totalDataPoints.Load()
+}
+
 func GetAllIdsWithCount() []models.KeyCount {
 	keys := allIds.Items()
 
 	var keyCount = []models.KeyCount{}
 	for _, key := range keys {
 		fh := prepareFileHandles(key+".aof", dataFileHandles)
+		if fh == nil {
+			keyCount = append(keyCount, models.KeyCount{Key: key, Count: 0})
+			continue
+		}
 		fileStat, _ := fh.Stat()
 		size := int(fileStat.Size() / 16)
 		keyCount = append(keyCount, models.KeyCount{Key: key, Count: size})
 	}
 
 	return keyCount
+}
+
+// CompactKey reads all data points for a key and rewrites them to a compacted file.
+// This removes gaps left by deleted data points and reduces file size.
+func CompactKey(key string) error {
+	if key == "" || !allIds.Contains(key) {
+		return fmt.Errorf("key not found: %s", key)
+	}
+
+	lock, _ := dataPatchLocks.LoadOrStore(key, &sync.Mutex{})
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Read all existing data points
+	dataPoints := readFiledDataPoints(key, 0, math.MaxInt64)
+	if dataPoints == nil {
+		return nil // empty file, nothing to compact
+	}
+
+	if len(dataPoints) == 0 {
+		return nil
+	}
+
+	// Write to a temporary file first for atomic replacement
+	tmpDataFile := utils.DataDir + "/" + key + ".aof.tmp"
+	tmpIdxFile := utils.DataDir + "/" + key + ".idx.tmp"
+
+	// Remove any leftover temp files
+	os.Remove(tmpDataFile)
+	os.Remove(tmpIdxFile)
+
+	// Close existing handles
+	if dfh, ok := dataFileHandles.Get(key + ".aof"); ok {
+		dfh.Close()
+		dataFileHandles.Delete(key + ".aof")
+	}
+	if ifh, ok := indexFileHandles.Get(key + ".idx"); ok {
+		ifh.Close()
+		indexFileHandles.Delete(key + ".idx")
+	}
+
+	// Create temp data file and write all points
+	tmpDataFileHandle, err := os.OpenFile(tmpDataFile, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create temp data file: %w", err)
+	}
+
+	tmpIdxFileHandle, err := os.OpenFile(tmpIdxFile, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		tmpDataFileHandle.Close()
+		return fmt.Errorf("failed to create temp index file: %w", err)
+	}
+
+	// Write data points and rebuild index
+	count := int64(0)
+	for _, dp := range dataPoints {
+		if err := writeBinary(tmpDataFileHandle, dp.Timestamp, dp.Value); err != nil {
+			tmpDataFileHandle.Close()
+			tmpIdxFileHandle.Close()
+			os.Remove(tmpDataFile)
+			os.Remove(tmpIdxFile)
+			return fmt.Errorf("failed to write compact data: %w", err)
+		}
+		count++
+		if count%indexInterval == 0 {
+			offset := (count - 1) * 16
+			if err := writeBinary(tmpIdxFileHandle, dp.Timestamp, offset); err != nil {
+				tmpDataFileHandle.Close()
+				tmpIdxFileHandle.Close()
+				os.Remove(tmpDataFile)
+				os.Remove(tmpIdxFile)
+				return fmt.Errorf("failed to write compact index: %w", err)
+			}
+		}
+	}
+
+	tmpDataFileHandle.Close()
+	tmpIdxFileHandle.Close()
+
+	realDataFile := utils.DataDir + "/" + key + ".aof"
+	realIdxFile := utils.DataDir + "/" + key + ".idx"
+
+	// Atomically rename: idx first (smaller), then data.
+	// If idx rename succeeds but data rename fails, rollback idx.
+	if err := os.Rename(tmpIdxFile, realIdxFile); err != nil {
+		os.Remove(tmpDataFile)
+		os.Remove(tmpIdxFile)
+		return fmt.Errorf("failed to rename index file: %w", err)
+	}
+	if err := os.Rename(tmpDataFile, realDataFile); err != nil {
+		// Rollback: restore old idx from what was just renamed
+		os.Rename(realIdxFile, tmpIdxFile)
+		os.Remove(tmpDataFile)
+		return fmt.Errorf("failed to rename data file: %w", err)
+	}
+
+	// Re-open file handles and update caches
+	prepareFileHandles(key+".aof", dataFileHandles)
+	prepareFileHandles(key+".idx", indexFileHandles)
+
+	if len(dataPoints) > 0 {
+		lastValue.Store(key, dataPoints[len(dataPoints)-1].Value)
+		lastTimestamp.Store(key, dataPoints[len(dataPoints)-1].Timestamp)
+	}
+
+	// Update count map, adjusting global counter for the difference
+	if oldCnt, ok := idToCountMap.Load(key); ok {
+		totalDataPoints.Add(-oldCnt.Load())
+	}
+	newCount := &atomic.Int64{}
+	newCount.Store(count)
+	idToCountMap.Store(key, newCount)
+	totalDataPoints.Add(count)
+
+	utils.Log("Compacted key %s: %d points, %d records", key, len(dataPoints), count)
+	return nil
 }

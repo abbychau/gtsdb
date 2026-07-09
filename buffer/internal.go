@@ -3,24 +3,27 @@ package buffer
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"gtsdb/concurrent"
 	"gtsdb/models"
 	"gtsdb/utils"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 )
 
-func writeBinary(file *os.File, data ...interface{}) {
+func writeBinary(file *os.File, data ...interface{}) error {
 	for _, d := range data {
 		err := binary.Write(file, binary.LittleEndian, d)
 		if err != nil {
-			utils.Panic(err)
+			return fmt.Errorf("error writing binary to file: %w", err)
 		}
 	}
+	return nil
 }
 
 func readBinary(reader io.Reader, data ...interface{}) error {
@@ -40,17 +43,27 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 
 	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
 	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
+	if dataFile == nil {
+		utils.Error("Cannot open data file for %s, skipping write", dataPointId)
+		return
+	}
 	for _, dataPoint := range dataPoints {
-		writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value)
+		if err := writeBinary(dataFile, dataPoint.Timestamp, dataPoint.Value); err != nil {
+			utils.Error("Failed to write data point for %s: %v", dataPointId, err)
+			return
+		}
 
 		countValue, _ := idToCountMap.Load(dataPointId)
 		count := countValue
-		count.Add(1)
+		newCount := count.Add(1)
+		totalDataPoints.Add(1)
 
-		if count.Load()%indexInterval == 0 {
+		if newCount%indexInterval == 0 {
 			offset, _ := dataFile.Seek(0, io.SeekEnd)
 			offset -= int64(binary.Size(dataPoint.Timestamp) + binary.Size(dataPoint.Value))
-			updateIndexFile(indexFile, dataPoint.Timestamp, offset)
+			if err := updateIndexFile(indexFile, dataPoint.Timestamp, offset); err != nil {
+				utils.Error("Failed to update index for %s: %v", dataPointId, err)
+			}
 		}
 	}
 	// Sync once after all points are written instead of per-point
@@ -66,13 +79,15 @@ func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.F
 	dir := filepath.Dir(fullPath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			utils.Panic(err)
+			utils.Error("Error creating directory %s: %v", dir, err)
+			return nil
 		}
 	}
 
 	file, err := os.OpenFile(fullPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
-		utils.Panic(err)
+		utils.Error("Error opening file %s: %v", fullPath, err)
+		return nil
 	}
 	handleMap.Put(fileName, file)
 
@@ -80,12 +95,14 @@ func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.F
 		if _, ok := idToCountMap.Load(fileName[:len(fileName)-4]); !ok {
 			fileInfo, err := file.Stat()
 			if err != nil {
-				utils.Panic(err)
+				utils.Error("Error getting file info for %s: %v", fullPath, err)
+				return file
 			}
 			fileLength := fileInfo.Size()
 			count := &atomic.Int64{}
 			count.Store(fileLength / 16)
 			idToCountMap.Store(fileName[:len(fileName)-4], count)
+			totalDataPoints.Add(fileLength / 16)
 		}
 	}
 	return file
@@ -93,6 +110,9 @@ func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.F
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	file := prepareFileHandles(id+".aof", dataFileHandles)
+	if file == nil {
+		return nil, nil
+	}
 
 	// Get file size and calculate actual record count
 	fileInfo, err := file.Stat()
@@ -144,12 +164,15 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	return dataPoints, nil
 }
 
-func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) {
-	writeBinary(indexFile, timestamp, offset)
+func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) error {
+	return writeBinary(indexFile, timestamp, offset)
 }
 
 func readFiledDataPoints(id string, startTime int64, endTime int64) []models.DataPoint {
 	file := prepareFileHandles(id+".aof", dataFileHandles)
+	if file == nil {
+		return nil
+	}
 	var dataPoints []models.DataPoint
 	reader := bufio.NewReader(file)
 
@@ -288,6 +311,9 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 		return dataPoints
 	}
 
+	// For percentile-based aggregations, we need to collect values per interval
+	needsValueCollection := aggregation == "median" || aggregation == "p50" || aggregation == "p95" || aggregation == "p99"
+
 	var downsampled []models.DataPoint
 	intervalStart := dataPoints[0].Timestamp
 	intervalSum := 0.0
@@ -296,54 +322,12 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 	intervalMax := dataPoints[0].Value
 	intervalFirst := dataPoints[0].Value
 	intervalLast := dataPoints[0].Value
+	var intervalValues []float64
 
-	for _, dp := range dataPoints {
-		if dp.Timestamp-intervalStart >= int64(downsample) {
-			if intervalCount > 0 {
-				var value float64
-				switch aggregation {
-				case "avg":
-					value = intervalSum / float64(intervalCount)
-				case "sum":
-					value = intervalSum
-				case "min":
-					value = intervalMin
-				case "max":
-					value = intervalMax
-				case "first":
-					value = intervalFirst
-				case "last":
-					value = intervalLast
-				default:
-					value = intervalSum / float64(intervalCount)
-				}
-				downsampled = append(downsampled, models.DataPoint{
-					Key:       dp.Key,
-					Timestamp: intervalStart,
-					Value:     value,
-				})
-			}
-			intervalStart = dp.Timestamp
-			intervalSum = dp.Value
-			intervalCount = 1
-			intervalMin = dp.Value
-			intervalMax = dp.Value
-			intervalFirst = dp.Value
-			intervalLast = dp.Value
-		} else {
-			intervalSum += dp.Value
-			intervalCount++
-			if dp.Value < intervalMin {
-				intervalMin = dp.Value
-			}
-			if dp.Value > intervalMax {
-				intervalMax = dp.Value
-			}
-			intervalLast = dp.Value
+	flushInterval := func(dp models.DataPoint) {
+		if intervalCount == 0 {
+			return
 		}
-	}
-
-	if intervalCount > 0 {
 		var value float64
 		switch aggregation {
 		case "avg":
@@ -358,14 +342,82 @@ func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggrega
 			value = intervalFirst
 		case "last":
 			value = intervalLast
+		case "count":
+			value = float64(intervalCount)
+		case "median", "p50":
+			if len(intervalValues) > 0 {
+				sort.Float64s(intervalValues)
+				value = intervalValues[len(intervalValues)/2]
+			}
+		case "p95":
+			if len(intervalValues) > 0 {
+				sort.Float64s(intervalValues)
+				idx := int(float64(len(intervalValues)) * 0.95)
+				if idx >= len(intervalValues) {
+					idx = len(intervalValues) - 1
+				}
+				value = intervalValues[idx]
+			}
+		case "p99":
+			if len(intervalValues) > 0 {
+				sort.Float64s(intervalValues)
+				idx := int(float64(len(intervalValues)) * 0.99)
+				if idx >= len(intervalValues) {
+					idx = len(intervalValues) - 1
+				}
+				value = intervalValues[idx]
+			}
 		default:
 			value = intervalSum / float64(intervalCount)
 		}
 		downsampled = append(downsampled, models.DataPoint{
-			Key:       dataPoints[len(dataPoints)-1].Key,
+			Key:       dp.Key,
 			Timestamp: intervalStart,
 			Value:     value,
 		})
+	}
+
+	resetInterval := func(dp models.DataPoint) {
+		intervalStart = dp.Timestamp
+		intervalSum = dp.Value
+		intervalCount = 1
+		intervalMin = dp.Value
+		intervalMax = dp.Value
+		intervalFirst = dp.Value
+		intervalLast = dp.Value
+		if needsValueCollection {
+			intervalValues = []float64{dp.Value}
+		}
+	}
+
+	addToInterval := func(dp models.DataPoint) {
+		intervalSum += dp.Value
+		intervalCount++
+		if dp.Value < intervalMin {
+			intervalMin = dp.Value
+		}
+		if dp.Value > intervalMax {
+			intervalMax = dp.Value
+		}
+		intervalLast = dp.Value
+		if needsValueCollection {
+			intervalValues = append(intervalValues, dp.Value)
+		}
+	}
+
+	resetInterval(dataPoints[0])
+
+	for _, dp := range dataPoints[1:] {
+		if dp.Timestamp-intervalStart >= int64(downsample) {
+			flushInterval(dp)
+			resetInterval(dp)
+		} else {
+			addToInterval(dp)
+		}
+	}
+
+	if intervalCount > 0 {
+		flushInterval(dataPoints[len(dataPoints)-1])
 	}
 
 	return downsampled

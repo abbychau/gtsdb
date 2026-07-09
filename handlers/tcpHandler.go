@@ -9,6 +9,7 @@ import (
 	"gtsdb/models"
 	"gtsdb/utils"
 	"strings"
+	"sync"
 
 	"math/rand"
 	"net"
@@ -29,8 +30,16 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		}
 	}
 
-	// Add done channel for cleanup
+	// Use sync.Once to ensure cleanup runs exactly once
 	done := make(chan bool)
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		close(done)
+		if len(subscribingDevices) > 0 {
+			utils.Log("Removing consumer %d due to disconnect", id)
+			fanoutManager.RemoveConsumer(id)
+		}
+	}
 
 	// Start ping sender
 	go func() {
@@ -45,10 +54,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if err := json.NewEncoder(conn).Encode(Response{Success: true, Message: "ping"}); err != nil {
 					utils.Log("Client %d failed ping", id)
-					if len(subscribingDevices) > 0 {
-						fanoutManager.RemoveConsumer(id)
-					}
-					conn.Close()
+					cleanupOnce.Do(cleanup)
 					return
 				}
 			}
@@ -232,10 +238,6 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		json.NewEncoder(conn).Encode(response)
 	}
 
-	// Cleanup when the connection ends
-	close(done)
-	if len(subscribingDevices) > 0 {
-		utils.Log("Removing consumer %d due to disconnect", id)
-		fanoutManager.RemoveConsumer(id)
-	}
+	// Cleanup when the connection ends (safe via sync.Once)
+	cleanupOnce.Do(cleanup)
 }

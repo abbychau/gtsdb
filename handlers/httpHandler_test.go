@@ -6,6 +6,7 @@ import (
 	"gtsdb/fanout"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -98,4 +99,65 @@ func TestSetupHTTPRoutes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	fanoutManager := fanout.NewFanout(10)
+	handler := SetupHTTPRoutes(fanoutManager)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("health endpoint returned %d, expected %d", rr.Code, http.StatusOK)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedFields := []string{"status", "service", "version", "keyCount"}
+	for _, field := range expectedFields {
+		if _, exists := result[field]; !exists {
+			t.Errorf("health response missing field: %s", field)
+		}
+	}
+	if result["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %v", result["status"])
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	fanoutManager := fanout.NewFanout(10)
+	handler := SetupHTTPRoutes(fanoutManager)
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("metrics endpoint returned %d, expected %d", rr.Code, http.StatusOK)
+	}
+
+	contentType := rr.Header().Get("Content-Type")
+	if contentType != "text/plain; version=0.0.4" {
+		t.Errorf("expected Content-Type 'text/plain; version=0.0.4', got %s", contentType)
+	}
+
+	body := rr.Body.String()
+	expectedMetrics := []string{"gtsdb_key_count", "gtsdb_data_points_total", "gtsdb_uptime_seconds", "go_memstats_alloc_bytes"}
+	for _, metric := range expectedMetrics {
+		if !containsMetric(body, metric) {
+			t.Errorf("metrics response missing: %s", metric)
+		}
+	}
+}
+
+// containsMetric checks if a Prometheus metric name appears in the response body
+func containsMetric(body, metric string) bool {
+	return strings.Contains(body, metric)
 }

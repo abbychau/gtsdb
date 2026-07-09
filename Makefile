@@ -12,6 +12,9 @@ lint:
 	golangci-lint run
 lint-fix:
 	golangci-lint run --fix
+integration-test:
+	go test -tags=integration -v -count=1 -timeout=60s .
+
 deploy:
 	git pull
 	pm2 del gtsdb-patch-remove-data

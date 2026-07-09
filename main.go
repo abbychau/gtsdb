@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"gtsdb/auth"
 	"gtsdb/buffer"
@@ -46,6 +48,9 @@ func run(configFile string) {
 	go startTCPServerWithStop(fanoutManager, tcpStop)
 	go startHTTPServerWithStop(fanoutManager, httpStop)
 
+	// Start background compaction (checks every hour, compacts files > 100MB)
+	compactStop := startBackgroundCompaction(1*time.Hour, 100*1024*1024)
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
@@ -53,6 +58,7 @@ func run(configFile string) {
 	// Stop servers
 	close(tcpStop)
 	close(httpStop)
+	close(compactStop)
 	gracefulShutdown()
 }
 
@@ -72,6 +78,9 @@ func startTCPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			select {
 			case <-stop:
 				return
@@ -92,10 +101,14 @@ func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 
 	go func() {
 		<-stop
-		srv.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
 	}()
 
-	srv.ListenAndServe()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		utils.Errorln("HTTP server error:", err)
+	}
 }
 
 func loadConfig(iniFile string) {
@@ -104,7 +117,7 @@ func loadConfig(iniFile string) {
 	utils.Log("🏃現在在用 %v 唷", iniFile)
 	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
-	cfg, err := ini.Load(iniFile)
+	cfg, err := ini.InsensitiveLoad(iniFile)
 	if err != nil {
 		utils.Warningln("無法讀取配置文件：", err)
 	} else {
@@ -183,4 +196,45 @@ func migrateData() {
 			}
 		}
 	}
+}
+
+// startBackgroundCompaction runs periodic WAL compaction in the background.
+// It checks all keys and compacts files that exceed the threshold size.
+func startBackgroundCompaction(interval time.Duration, thresholdBytes int64) chan struct{} {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				utils.Log("Starting background compaction check (threshold: %d bytes)", thresholdBytes)
+				ids := buffer.GetAllIds()
+				for _, id := range ids {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					fh, ok := buffer.GetDataFileHandle(id + ".aof")
+					if !ok || fh == nil {
+						continue
+					}
+					stat, err := fh.Stat()
+					if err != nil {
+						continue
+					}
+					if stat.Size() > thresholdBytes {
+						utils.Log("Auto-compacting key %s (size: %d bytes)", id, stat.Size())
+						if err := buffer.CompactKey(id); err != nil {
+							utils.Error("Auto-compaction failed for %s: %v", id, err)
+						}
+					}
+				}
+			}
+		}
+	}()
+	return stop
 }

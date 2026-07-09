@@ -359,18 +359,18 @@ func TestReadBufferedDataPointsEdgeCases(t *testing.T) {
 	})
 }
 
-func TestPrepareFileHandlesPanic(t *testing.T) {
+func TestPrepareFileHandlesCreatesDir(t *testing.T) {
+	tmpDir := t.TempDir()
 	originalDataDir := utils.DataDir
-	utils.DataDir = "/nonexistent/directory"
+	utils.DataDir = tmpDir
+	defer func() { utils.DataDir = originalDataDir }()
 
-	defer func() {
-		utils.DataDir = originalDataDir
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic for invalid directory")
-		}
-	}()
-
-	prepareFileHandles("test.aof", dataFileHandles)
+	fh := prepareFileHandles("newdir/test.aof", dataFileHandles)
+	if fh == nil {
+		t.Error("Expected file handle to be created in new subdirectory")
+	} else {
+		fh.Close()
+	}
 }
 
 func TestPatchDataPointsEmptyKey(t *testing.T) {

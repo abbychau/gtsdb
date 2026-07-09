@@ -1,0 +1,531 @@
+openapi: "3.0.3"
+info:
+  title: GTSDB API
+  description: |
+    Golang Dead Simple Timeseries Database - HTTP API
+
+    GTSDB is a WAL-first timeseries database. It supports writing, reading, and
+    managing timeseries data points via HTTP and TCP protocols.
+
+    ## Authentication
+    Most endpoints require a Bearer token in the Authorization header.
+    The root user can create/manage users and their tokens.
+  version: "1.0"
+  contact:
+    name: GTSDB
+    url: https://github.com/abbychau/gtsdb
+
+servers:
+  - url: http://localhost:5556
+    description: Local development server
+
+paths:
+  /:
+    post:
+      summary: Execute a database operation
+      description: |
+        All database operations are performed via POST to the root endpoint.
+        The operation type is specified in the JSON body.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/WriteOperation'
+                - $ref: '#/components/schemas/ReadOperation'
+                - $ref: '#/components/schemas/BatchWriteOperation'
+                - $ref: '#/components/schemas/MultiReadOperation'
+                - $ref: '#/components/schemas/ExportOperation'
+                - $ref: '#/components/schemas/DataPatchOperation'
+                - $ref: '#/components/schemas/DeleteDataPointOperation'
+                - $ref: '#/components/schemas/IdsOperation'
+                - $ref: '#/components/schemas/IdsWithCountOperation'
+                - $ref: '#/components/schemas/FlushOperation'
+                - $ref: '#/components/schemas/InitKeyOperation'
+                - $ref: '#/components/schemas/RenameKeyOperation'
+                - $ref: '#/components/schemas/DeleteKeyOperation'
+                - $ref: '#/components/schemas/ReloadKeyOperation'
+                - $ref: '#/components/schemas/CompactOperation'
+                - $ref: '#/components/schemas/SubscribeOperation'
+                - $ref: '#/components/schemas/UnsubscribeOperation'
+                - $ref: '#/components/schemas/ServerInfoOperation'
+                - $ref: '#/components/schemas/AddUserOperation'
+                - $ref: '#/components/schemas/ResetKeyOperation'
+            examples:
+              write:
+                summary: Write a data point
+                value:
+                  operation: write
+                  key: sensor1
+                  write:
+                    value: 42.5
+                    timestamp: 1717965210
+              read:
+                summary: Read data points by timerange
+                value:
+                  operation: read
+                  key: sensor1
+                  read:
+                    start_timestamp: 1717965210
+                    end_timestamp: 1717965310
+                    downsampling: 60
+                    aggregation: avg
+              read_last:
+                summary: Read last N data points
+                value:
+                  operation: read
+                  key: sensor1
+                  read:
+                    lastx: 10
+              ids:
+                summary: List all keys
+                value:
+                  operation: ids
+              batch_write:
+                summary: Batch write multiple points
+                value:
+                  operation: batch-write
+                  points:
+                    - key: sensor1
+                      value: 42.5
+                      timestamp: 1717965210
+                    - key: sensor2
+                      value: 100.0
+      responses:
+        "200":
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /health:
+    get:
+      summary: Health check
+      description: Returns service health status (no authentication required)
+      security: []
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: gtsdb
+                  version:
+                    type: string
+                    example: "1.0"
+                  keyCount:
+                    type: integer
+                    example: 42
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Returns metrics in Prometheus text format (no authentication required)
+      security: []
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token-based authentication. Obtain token from root user.
+
+  schemas:
+    Response:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation was successful
+          example: true
+        message:
+          type: string
+          description: Human-readable message
+          example: Data point stored
+        data:
+          type: object
+          description: Operation-specific data payload
+        read_query_params:
+          $ref: '#/components/schemas/ReadRequest'
+        multi_data:
+          type: object
+          description: Multi-read results keyed by sensor name
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/DataPoint'
+
+    DataPoint:
+      type: object
+      properties:
+        key:
+          type: string
+          description: Sensor/key identifier
+          example: sensor1
+        timestamp:
+          type: integer
+          description: Unix timestamp
+          example: 1717965210
+        value:
+          type: number
+          format: float
+          description: Data point value
+          example: 42.5
+
+    WriteRequest:
+      type: object
+      properties:
+        value:
+          type: number
+          format: float
+          description: Data point value
+        timestamp:
+          type: integer
+          description: Unix timestamp (optional, defaults to server time)
+      required:
+        - value
+
+    ReadRequest:
+      type: object
+      properties:
+        start_timestamp:
+          type: integer
+          description: Start of time range (Unix timestamp)
+        end_timestamp:
+          type: integer
+          description: End of time range (Unix timestamp)
+        downsampling:
+          type: integer
+          description: Downsampling interval in seconds
+          example: 60
+        lastx:
+          type: integer
+          description: Return last N data points
+          example: 10
+        aggregation:
+          type: string
+          description: Aggregation function for downsampling
+          enum: [avg, sum, min, max, first, last, count, median, p50, p95, p99]
+          default: avg
+
+    DeleteDataPointPayload:
+      type: object
+      properties:
+        operator:
+          type: string
+          description: Comparison operator for value filter
+          enum: [">", "<"]
+        value:
+          type: number
+          format: float
+          description: Threshold value for deletion
+        timestampFrom:
+          type: integer
+          description: Start of time range (Unix timestamp)
+        timestampTo:
+          type: integer
+          description: End of time range (Unix timestamp)
+
+    WriteOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [write]
+        key:
+          type: string
+          description: Sensor/key identifier
+        write:
+          $ref: '#/components/schemas/WriteRequest'
+      required:
+        - operation
+        - key
+        - write
+
+    BatchWriteOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [batch-write]
+        points:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value:
+                type: number
+                format: float
+              timestamp:
+                type: integer
+            required:
+              - key
+              - value
+          maxItems: 10000
+      required:
+        - operation
+        - points
+
+    ReadOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [read]
+        key:
+          type: string
+        read:
+          $ref: '#/components/schemas/ReadRequest'
+      required:
+        - operation
+        - key
+        - read
+
+    MultiReadOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [multi-read]
+        keys:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        read:
+          $ref: '#/components/schemas/ReadRequest'
+      required:
+        - operation
+        - keys
+        - read
+
+    ExportOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [export]
+        key:
+          type: string
+        export:
+          type: object
+          properties:
+            format:
+              type: string
+              enum: [csv, json]
+              default: json
+            start_timestamp:
+              type: integer
+            end_timestamp:
+              type: integer
+            lastx:
+              type: integer
+            downsampling:
+              type: integer
+            aggregation:
+              type: string
+      required:
+        - operation
+        - key
+        - export
+
+    DataPatchOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [data-patch]
+        key:
+          type: string
+        data:
+          type: string
+          description: "CSV format (timestamp,value per line) or JSON array [{\"timestamp\": 123, \"value\": 45.6}]"
+          maxLength: 10485760
+      required:
+        - operation
+        - key
+        - data
+
+    DeleteDataPointOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [deleteDataPoint]
+        key:
+          type: string
+        payload:
+          $ref: '#/components/schemas/DeleteDataPointPayload'
+      required:
+        - operation
+        - key
+        - payload
+
+    IdsOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [ids]
+      required:
+        - operation
+
+    IdsWithCountOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [idswithcount]
+      required:
+        - operation
+
+    FlushOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [flush]
+      required:
+        - operation
+
+    InitKeyOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [initkey]
+        key:
+          type: string
+      required:
+        - operation
+        - key
+
+    RenameKeyOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [renamekey]
+        key:
+          type: string
+        tokey:
+          type: string
+      required:
+        - operation
+        - key
+        - tokey
+
+    DeleteKeyOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [deletekey]
+        key:
+          type: string
+      required:
+        - operation
+        - key
+
+    ReloadKeyOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [reloadkey]
+        key:
+          type: string
+      required:
+        - operation
+        - key
+
+    CompactOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [compact]
+        key:
+          type: string
+      required:
+        - operation
+        - key
+
+    SubscribeOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [subscribe]
+        key:
+          type: string
+      required:
+        - operation
+        - key
+
+    UnsubscribeOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [unsubscribe]
+        key:
+          type: string
+      required:
+        - operation
+        - key
+
+    ServerInfoOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [serverinfo]
+      required:
+        - operation
+
+    AddUserOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [adduser]
+        key:
+          type: string
+          description: Username to create
+      required:
+        - operation
+
+    ResetKeyOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [resetkey]
+        key:
+          type: string
+          description: Username to reset token for
+      required:
+        - operation
+        - key

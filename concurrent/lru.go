@@ -168,6 +168,9 @@ func (l *LRU[K, V]) Delete(key K) {
 		}
 	}
 	delete(l.cache, key)
+	if l.onEvicted != nil {
+		l.onEvicted(node.key, node.value)
+	}
 }
 
 // Range iterates over the cache items (unordered)

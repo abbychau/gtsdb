@@ -19,10 +19,8 @@ func cleanup() {
 		os.Remove(utils.DataDir + "/" + file.Name())
 	}
 	
-	// Initialize file handles if not already initialized
-	if dataFileHandles == nil || indexFileHandles == nil {
-		InitFileHandles()
-	}
+	// Re-initialize file handles to clear any cached state between tests
+	InitFileHandles()
 }
 
 func TestStoreAndReadDataPoints(t *testing.T) {
@@ -555,5 +553,120 @@ func TestGetAllIdsWithCount(t *testing.T) {
 		if !found {
 			t.Errorf("Key %s not found in results", td.id)
 		}
+	}
+}
+
+func TestGetDataFileHandle(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	testID := "TestGetDataFileHandle"
+	dataPoint := models.DataPoint{
+		Key:       testID,
+		Timestamp: time.Now().Unix(),
+		Value:     42.5,
+	}
+	StoreDataPointBuffer(dataPoint)
+
+	// Test getting existing file handle
+	fh, ok := GetDataFileHandle(testID + ".aof")
+	if !ok {
+		t.Error("Expected file handle for existing key")
+	}
+	if fh == nil {
+		t.Error("Expected non-nil file handle")
+	}
+
+	// Test getting non-existent file handle (use truly unique name)
+	_, ok = GetDataFileHandle("__very_unlikely_nonexistent_file__.aof")
+	if ok {
+		t.Error("Expected false for non-existent file")
+	}
+}
+
+func TestGetKeyCount(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	testID := "TestGetKeyCount"
+	dataPoint := models.DataPoint{
+		Key:       testID,
+		Timestamp: time.Now().Unix(),
+		Value:     1.0,
+	}
+	StoreDataPointBuffer(dataPoint)
+
+	// Test getting count for existing key
+	count, ok := GetKeyCount(testID)
+	if !ok {
+		t.Error("Expected key to exist")
+	}
+	if count < 1 {
+		t.Errorf("Expected count >= 1, got %d", count)
+	}
+
+	// Test getting count for non-existent key (use truly unique name)
+	_, ok = GetKeyCount("__nonexistent_key_with_very_unlikely_name__")
+	if ok {
+		t.Error("Expected false for non-existent key")
+	}
+}
+
+func TestCompactKey(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	testID := "TestCompactKey"
+	now := time.Now().Unix()
+
+	// Write test data points
+	for i := 0; i < 100; i++ {
+		StoreDataPointBuffer(models.DataPoint{
+			Key:       testID,
+			Timestamp: now + int64(i),
+			Value:     float64(i),
+		})
+	}
+
+	// Verify data exists before compaction
+	beforePoints := ReadLastDataPoints(testID, 100)
+	if len(beforePoints) != 100 {
+		t.Fatalf("Expected 100 points before compaction, got %d", len(beforePoints))
+	}
+
+	// Compact the key
+	err := CompactKey(testID)
+	if err != nil {
+		t.Fatalf("CompactKey failed: %v", err)
+	}
+
+	// Verify data is still intact after compaction
+	afterPoints := ReadLastDataPoints(testID, 100)
+	if len(afterPoints) != 100 {
+		t.Errorf("Expected 100 points after compaction, got %d", len(afterPoints))
+	}
+
+	// Verify values are correct
+	for i := 0; i < 100; i++ {
+		if afterPoints[i].Value != float64(i) {
+			t.Errorf("At index %d: expected value %f, got %f", i, float64(i), afterPoints[i].Value)
+		}
+	}
+}
+
+func TestCompactKeyNonExistent(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	err := CompactKey("nonexistent_key")
+	if err == nil {
+		t.Error("Expected error for non-existent key")
+	}
+}
+
+func TestCompactKeyEmptyKey(t *testing.T) {
+	err := CompactKey("")
+	if err == nil {
+		t.Error("Expected error for empty key")
 	}
 }

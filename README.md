@@ -34,70 +34,95 @@ You can see the performance of this database in the performance section. (It is 
 Am I going to write it in Rust/C++/Zig? Yes. I love Rust but GTSDB is still highly experimental and I want to make it more stable before I write it in Rust. I still have a lot of ideas to implement and they sometimes contradict each other. So... I'm still in Golang. Even so, I made it in very high code coverage and with some different internal and end-to-end benchmarks. If you want to use it in production, you can use it. Just make sure to checkout a git hash that is with a green tick in the CI. 
 
 
-## Run / Compile
+## Quick Start
 
 ```bash
+# 1. Run the server
 go run .
-go build .
+
+# 2. Get the auto-generated root token from the logs:
+#    "Created default root user with token: abc123..."
+
+# 3. Use the API (see docs/ for details)
 ```
 
-## Usage
+## Documentation
 
-### HTTP API (POST to :5556)
+| Document | Description |
+|----------|-------------|
+| [OpenAPI Specification](docs/openapi.yaml) | Complete HTTP API reference (OpenAPI 3.0) |
+| [API Examples](docs/api.http) | Runnable REST Client examples for VS Code |
+| [TCP Protocol](docs/tcp-protocol.md) | TCP interface protocol and examples |
+| [Configuration Reference](docs/configuration.md) | All config file options |
+| [Operations Guide](docs/operations.md) | Complete operations reference |
+| [Cloud User Guide](GTSDB_CLOUD_GUIDE.md) | Multi-user authentication and tenancy |
 
-```json
-# Write data
-# POST /
-{
-    "operation":"write",
-    "Write": {
-        "key" : "a_sensor1",
-        "Value": 32242424243333333333.3333
-    }
-}
+## Architecture
 
-# Read data
-# POST /
-{
-    "operation":"read",
-    "Read": {
-        "key" : "a_sensor1",
-        "start_timestamp": 1717965210,
-        "end_timestamp": 1717965211,
-        "downsampling": 3
-    }
-}
-{
-    "operation":"read",
-    "Read": {
-        "key" : "a_sensor1",
-        "lastx": 1
-    }
-}
+```
+┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  TCP Client  │────▶│  TCP Server      │     │                  │
+│  (port 5555) │     │  (goroutine)     │     │   Fanout Pub/Sub  │
+└─────────────┘     └──────┬───────────┘     │                  │
+                           │                  └───────┬──────────┘
+┌─────────────┐     ┌──────▼───────────┐            │
+│  HTTP Client │────▶│  HTTP Server     │     ┌──────▼──────────┐
+│  (port 5556) │     │  (goroutine)     │────▶│  Handler Layer  │
+└─────────────┘     └──────────────────┘     └──────┬──────────┘
+                                                    │
+                                           ┌────────▼────────┐
+                                           │  Buffer Layer    │
+                                           │  (WAL + Index)   │
+                                           └────────┬────────┘
+                                                    │
+                                           ┌────────▼────────┐
+                                           │  File System     │
+                                           │  (.aof + .idx)   │
+                                           └─────────────────┘
+```
 
-# Get all keys
-# POST /
-{
-    "operation":"ids"
-}
+## API Overview
 
-# Subscribe to a key
-# POST /
-{
-  "operation": "subscribe",
-  "key": "sensor1"
-}
+### HTTP (POST to :5556)
 
-# Unsubscribe to a key
-# POST /
-{
-  "operation": "unsubscribe",
-  "key": "sensor1"
-}
+All operations are performed by POSTing JSON to `/` with an `Authorization: Bearer <token>` header.
 
-# Patch data points for a key
-# POST /
-{
+| Operation | Description |
+|-----------|-------------|
+| `write` | Store a single data point |
+| `batch-write` | Write multiple data points across keys |
+| `read` | Read data points (range or last N) |
+| `multi-read` | Batch read across multiple keys |
+| `export` | Export data as CSV or JSON |
+| `data-patch` | Bulk insert/upsert (CSV or JSON array) |
+| `deleteDataPoint` | Delete data points by value or time range |
+| `ids` / `idswithcount` | List keys |
+| `subscribe` / `unsubscribe` | Real-time notifications (SSE) |
+| `compact` | Compact WAL file for a key |
+| `initkey` / `renamekey` / `deletekey` / `reloadkey` | Key management |
+| `serverinfo` | Server diagnostics |
+| `adduser` / `resetkey` | User management (root only) |
+| `flush` | Flush data to disk |
+
+### Health & Monitoring
+- `GET /health` — JSON health status (no auth)
+- `GET /metrics` — Prometheus metrics (no auth)
+
+See [OpenAPI Specification](docs/openapi.yaml) for full details, or [API Examples](docs/api.http) for runnable REST Client requests.
+
+### TCP (port 5555)
+
+JSON-line protocol with authentication. See [TCP Protocol](docs/tcp-protocol.md) for details.
+
+## Configuration
+
+See [Configuration Reference](docs/configuration.md) for all options.
+
+Default config file: `gtsdb.ini`. Custom config via command line argument:
+
+```bash
+./gtsdb myconfig.ini
+```
     "operation": "data-patch",
     "key": "sensor1",
     "data": "1717965210,123.45\n1717965211,123.46\n1717965212,123.47"

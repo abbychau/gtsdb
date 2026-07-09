@@ -113,6 +113,40 @@ func TestLRU(t *testing.T) {
 		}
 	})
 
+	t.Run("NewLRUWithEvict Delete callback", func(t *testing.T) {
+		evictedKeys := make([]string, 0)
+		evictedValues := make([]int, 0)
+
+		lru := NewLRUWithEvict[string, int](5, func(key string, value int) {
+			evictedKeys = append(evictedKeys, key)
+			evictedValues = append(evictedValues, value)
+		})
+
+		lru.Put("a", 1)
+		lru.Put("b", 2)
+		lru.Put("c", 3)
+
+		// Delete should trigger eviction callback
+		lru.Delete("b")
+		if len(evictedKeys) != 1 || evictedKeys[0] != "b" || evictedValues[0] != 2 {
+			t.Errorf("expected eviction of 'b', 2 via Delete, got %v, %v", evictedKeys, evictedValues)
+		}
+
+		// Delete non-existent key should not trigger callback
+		lru.Delete("nonexistent")
+		if len(evictedKeys) != 1 {
+			t.Errorf("expected no additional evictions for non-existent key, got %d", len(evictedKeys))
+		}
+
+		// Verify remaining items
+		if _, ok := lru.Get("a"); !ok {
+			t.Error("expected 'a' to still exist")
+		}
+		if _, ok := lru.Get("c"); !ok {
+			t.Error("expected 'c' to still exist")
+		}
+	})
+
 	t.Run("Delete function", func(t *testing.T) {
 		lru := NewLRU[string, int](5)
 

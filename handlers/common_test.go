@@ -445,3 +445,420 @@ func writeTestData(t *testing.T, id string, values []float64) {
 		time.Sleep(time.Millisecond) // Ensure different timestamps
 	}
 }
+
+// --- New tests for recently added features ---
+
+func TestValidateKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"valid simple key", "sensor1", true},
+		{"valid key with slash", "user/sensor1", true},
+		{"path traversal", "sensor1/../etc", false},
+		{"double dots", "../evil", false},
+		{"nested traversal", "a/../../../b", false},
+		{"null byte", "sensor\x00", false},
+		{"leading slash", "/sensor1", false},
+		{"leading backslash", "\\sensor1", false},
+		{"empty string", "", true},
+		{"max length 512", string(make([]byte, 512)), true},
+		{"too long 513", string(make([]byte, 513)), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := validateKey(tt.key); got != tt.want {
+				t.Errorf("validateKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateTimestamp(t *testing.T) {
+	tests := []struct {
+		name string
+		ts   int64
+		want bool
+	}{
+		{"zero (auto)", 0, true},
+		{"negative", -1, true}, // automatically replaced with Now()
+		{"year 2000 boundary", 946684800, true},
+		{"year 2100 boundary", 4102444800, true},
+		{"before 2000", 946684799, false},
+		{"after 2100", 4102444801, false},
+		{"current time", 1717965210, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := validateTimestamp(tt.ts); got != tt.want {
+				t.Errorf("validateTimestamp(%d) = %v, want %v", tt.ts, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBatchWriteOperation(t *testing.T) {
+	t.Run("valid batch", func(t *testing.T) {
+		op := Operation{
+			Operation: "batch-write",
+			Points: []BatchWritePoint{
+				{Key: "batch_test_1", Value: 1.0},
+				{Key: "batch_test_2", Value: 2.0},
+				{Key: "batch_test_3", Value: 3.0},
+			},
+		}
+		resp := HandleOperation(op)
+		if !resp.Success {
+			t.Errorf("batch-write failed: %s", resp.Message)
+		}
+	})
+
+	t.Run("batch with custom timestamps", func(t *testing.T) {
+		now := time.Now().Unix()
+		op := Operation{
+			Operation: "batch-write",
+			Points: []BatchWritePoint{
+				{Key: "batch_ts_1", Value: 10.0, Timestamp: now},
+				{Key: "batch_ts_2", Value: 20.0, Timestamp: now + 1},
+			},
+		}
+		resp := HandleOperation(op)
+		if !resp.Success {
+			t.Errorf("batch-write with timestamps failed: %s", resp.Message)
+		}
+
+		// Verify both points were stored
+		readResp := HandleOperation(Operation{
+			Operation: "read",
+			Key:       "batch_ts_1",
+			Read:      &ReadRequest{LastX: 1},
+		})
+		if !readResp.Success {
+			t.Errorf("Read after batch failed: %s", readResp.Message)
+		}
+	})
+
+	t.Run("empty points array", func(t *testing.T) {
+		op := Operation{
+			Operation: "batch-write",
+			Points:    []BatchWritePoint{},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected batch-write with empty points to fail")
+		}
+	})
+
+	t.Run("missing key in point", func(t *testing.T) {
+		op := Operation{
+			Operation: "batch-write",
+			Points: []BatchWritePoint{
+				{Value: 1.0}, // missing key
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected batch-write with missing key to fail")
+		}
+	})
+
+	t.Run("invalid timestamp in batch", func(t *testing.T) {
+		op := Operation{
+			Operation: "batch-write",
+			Points: []BatchWritePoint{
+				{Key: "batch_invalid_ts", Value: 1.0, Timestamp: 500}, // before year 2000
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected batch-write with invalid timestamp to fail")
+		}
+	})
+
+	t.Run("exceeds max batch size", func(t *testing.T) {
+		points := make([]BatchWritePoint, 10001)
+		for i := range points {
+			points[i] = BatchWritePoint{Key: "big_batch", Value: float64(i)}
+		}
+		op := Operation{
+			Operation: "batch-write",
+			Points:    points,
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected batch-write with >10000 points to fail")
+		}
+	})
+}
+
+func TestExportOperation(t *testing.T) {
+	testKey := "export_test_key"
+	// Write some test data
+	for i := 0; i < 5; i++ {
+		HandleOperation(Operation{
+			Operation: "write",
+			Key:       testKey,
+			Write: &WriteRequest{
+				Value:     float64(i) * 10,
+				Timestamp: time.Now().Unix() + int64(i),
+			},
+		})
+	}
+
+	t.Run("export JSON", func(t *testing.T) {
+		op := Operation{
+			Operation: "export",
+			Key:       testKey,
+			Export: &ExportRequest{
+				Format: "json",
+				LastX:  3,
+			},
+		}
+		resp := HandleOperation(op)
+		if !resp.Success {
+			t.Fatalf("Export JSON failed: %s", resp.Message)
+		}
+		data, ok := resp.Data.([]models.DataPoint)
+		if !ok {
+			t.Fatal("Export JSON expected []DataPoint response")
+		}
+		if len(data) != 3 {
+			t.Errorf("Expected 3 data points, got %d", len(data))
+		}
+	})
+
+	t.Run("export CSV", func(t *testing.T) {
+		op := Operation{
+			Operation: "export",
+			Key:       testKey,
+			Export: &ExportRequest{
+				Format: "csv",
+				LastX:  2,
+			},
+		}
+		resp := HandleOperation(op)
+		if !resp.Success {
+			t.Fatalf("Export CSV failed: %s", resp.Message)
+		}
+		csvData, ok := resp.Data.(string)
+		if !ok {
+			t.Fatal("Export CSV expected string response")
+		}
+		if len(csvData) == 0 {
+			t.Error("Expected non-empty CSV data")
+		}
+	})
+
+	t.Run("export invalid format", func(t *testing.T) {
+		op := Operation{
+			Operation: "export",
+			Key:       testKey,
+			Export: &ExportRequest{
+				Format: "xml",
+				LastX:  1,
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected export with invalid format to fail")
+		}
+	})
+
+	t.Run("export no params", func(t *testing.T) {
+		op := Operation{
+			Operation: "export",
+			Key:       testKey,
+			Export:    &ExportRequest{Format: "json"},
+		}
+		resp := HandleOperation(op)
+		if !resp.Success {
+			t.Errorf("Export with defaults failed: %s", resp.Message)
+		}
+	})
+}
+
+func TestServerInfoOperation(t *testing.T) {
+	op := Operation{
+		Operation: "serverinfo",
+	}
+	resp := HandleOperation(op)
+	if !resp.Success {
+		t.Fatalf("serverinfo failed: %s", resp.Message)
+	}
+	data, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatal("serverinfo expected map response")
+	}
+	// Verify enhanced fields
+	fields := []string{"version", "key_count", "health", "uptime_seconds", "goroutines", "num_cpu", "listen_tcp", "listen_http", "data_dir", "file_handle_lru"}
+	for _, field := range fields {
+		if _, exists := data[field]; !exists {
+			t.Errorf("serverinfo missing field: %s", field)
+		}
+	}
+}
+
+func TestCompactOperation(t *testing.T) {
+	testKey := "compact_op_test"
+	// Write test data
+	for i := 0; i < 20; i++ {
+		HandleOperation(Operation{
+			Operation: "write",
+			Key:       testKey,
+			Write: &WriteRequest{
+				Value:     float64(i),
+				Timestamp: time.Now().Unix() + int64(i),
+			},
+		})
+	}
+
+	t.Run("compact existing key", func(t *testing.T) {
+		op := Operation{
+			Operation: "compact",
+			Key:       testKey,
+		}
+		resp := HandleOperation(op)
+		if !resp.Success {
+			t.Errorf("Compact failed: %s", resp.Message)
+		}
+		// Verify data still readable after compact
+		readResp := HandleOperation(Operation{
+			Operation: "read",
+			Key:       testKey,
+			Read:      &ReadRequest{LastX: 5},
+		})
+		if !readResp.Success {
+			t.Errorf("Read after compact failed: %s", readResp.Message)
+		}
+	})
+
+	t.Run("compact non-existent key", func(t *testing.T) {
+		op := Operation{
+			Operation: "compact",
+			Key:       "nonexistent_compact_test",
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected compact of non-existent key to fail")
+		}
+	})
+}
+
+func TestDataPatchSizeLimit(t *testing.T) {
+	// Create data exceeding maxPatchDataLength (10MB)
+	largeData := make([]byte, maxPatchDataLength+1)
+	for i := range largeData {
+		largeData[i] = '0'
+	}
+
+	op := Operation{
+		Operation: "data-patch",
+		Key:       "patch_size_test",
+		Data:      string(largeData),
+	}
+	resp := HandleOperation(op)
+	if resp.Success {
+		t.Error("Expected data-patch with oversized payload to fail")
+	}
+}
+
+func TestTimestampValidationInOperations(t *testing.T) {
+	t.Run("write with future timestamp rejected", func(t *testing.T) {
+		op := Operation{
+			Operation: "write",
+			Key:       "ts_test_future",
+			Write: &WriteRequest{
+				Value:     1.0,
+				Timestamp: 4102444801, // after year 2100
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected write with far-future timestamp to fail")
+		}
+	})
+
+	t.Run("write with past timestamp rejected", func(t *testing.T) {
+		op := Operation{
+			Operation: "write",
+			Key:       "ts_test_past",
+			Write: &WriteRequest{
+				Value:     1.0,
+				Timestamp: 946684799, // before year 2000
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected write with pre-2000 timestamp to fail")
+		}
+	})
+
+	t.Run("read with invalid time range", func(t *testing.T) {
+		op := Operation{
+			Operation: "read",
+			Key:       "ts_test_read",
+			Read: &ReadRequest{
+				StartTime: 500, // before year 2000
+				EndTime:   1000,
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected read with invalid time range to fail")
+		}
+	})
+
+	t.Run("delete with invalid time range", func(t *testing.T) {
+		op := Operation{
+			Operation: "deleteDataPoint",
+			Key:       "ts_test_delete",
+			Payload: &DeleteDataPointRequest{
+				TimestampFrom: 500,
+				TimestampTo:   1000,
+			},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected deleteDataPoint with invalid time range to fail")
+		}
+	})
+}
+
+func TestKeyValidationInOperations(t *testing.T) {
+	t.Run("path traversal key rejected", func(t *testing.T) {
+		op := Operation{
+			Operation: "write",
+			Key:       "../etc/passwd",
+			Write:     &WriteRequest{Value: 1.0},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected write with path traversal key to fail")
+		}
+	})
+
+	t.Run("path traversal rename rejected", func(t *testing.T) {
+		op := Operation{
+			Operation: "renamekey",
+			Key:       "safe_key",
+			ToKey:     "../evil",
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected renamekey with path traversal to fail")
+		}
+	})
+
+	t.Run("null byte key rejected", func(t *testing.T) {
+		op := Operation{
+			Operation: "write",
+			Key:       "sensor\x00name",
+			Write:     &WriteRequest{Value: 1.0},
+		}
+		resp := HandleOperation(op)
+		if resp.Success {
+			t.Error("Expected write with null byte key to fail")
+		}
+	})
+}

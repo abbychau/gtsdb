@@ -93,10 +93,10 @@ func CreateUser(name string) (User, error) {
 	defer usersMutex.Unlock()
 
 	if name == "" {
-		// Generate a unique name if empty
+		// Generate a unique name if empty (use 16 hex chars = 8 bytes entropy)
 		for {
 			token, _ := generateToken()
-			name = "user_" + token[:8]
+			name = "user_" + token[:16]
 			if _, exists := users[name]; !exists {
 				break
 			}
@@ -107,9 +107,28 @@ func CreateUser(name string) (User, error) {
 		return User{}, errors.New("user already exists")
 	}
 
-	token, err := generateToken()
-	if err != nil {
-		return User{}, err
+	// Generate unique token (retry on extremely unlikely collision)
+	var token string
+	for attempts := 0; attempts < 10; attempts++ {
+		var err error
+		token, err = generateToken()
+		if err != nil {
+			return User{}, err
+		}
+		// Check token uniqueness across all users
+		tokenUnique := true
+		for _, u := range users {
+			if u.Token == token {
+				tokenUnique = false
+				break
+			}
+		}
+		if tokenUnique {
+			break
+		}
+	}
+	if token == "" {
+		return User{}, errors.New("failed to generate unique token")
 	}
 
 	user := User{Name: name, Token: token}

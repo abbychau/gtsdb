@@ -5,13 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"gtsdb/auth"
+	"gtsdb/buffer"
 	"gtsdb/fanout"
 	"gtsdb/models"
 	"gtsdb/utils"
 	"net/http"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// sseConsumerID is a monotonic counter for SSE consumer IDs, safe across goroutines.
+var sseConsumerID atomic.Int64
 
 func writeJSON(w http.ResponseWriter, response Response) {
 	w.Header().Set("Content-Type", "application/json")
@@ -88,6 +94,66 @@ func isAllowedKeyForUser(key string, userName string) bool {
 func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 	mux := http.NewServeMux()
 
+	// Health check endpoint (no auth required)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "ok",
+			"service":  "gtsdb",
+			"version":  "1.0",
+			"keyCount": len(buffer.GetAllIds()),
+		})
+	})
+
+	// Prometheus metrics endpoint (no auth required)
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		uptime := int(time.Since(serverStartTime).Seconds())
+		keyCount := len(buffer.GetAllIds())
+		totalPoints := buffer.GetTotalDataPoints()
+
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		fmt.Fprintf(w, `# HELP gtsdb_key_count Total number of keys (sensors) in the database
+# TYPE gtsdb_key_count gauge
+gtsdb_key_count %d
+
+# HELP gtsdb_data_points_total Total number of data points stored
+# TYPE gtsdb_data_points_total gauge
+gtsdb_data_points_total %d
+
+# HELP gtsdb_uptime_seconds Server uptime in seconds
+# TYPE gtsdb_uptime_seconds counter
+gtsdb_uptime_seconds %d
+
+# HELP gtsdb_goroutines Current number of goroutines
+# TYPE gtsdb_goroutines gauge
+gtsdb_goroutines %d
+
+# HELP go_memstats_alloc_bytes Current memory allocation in bytes
+# TYPE go_memstats_alloc_bytes gauge
+go_memstats_alloc_bytes %d
+
+# HELP go_memstats_heap_inuse_bytes Heap memory in use
+# TYPE go_memstats_heap_inuse_bytes gauge
+go_memstats_heap_inuse_bytes %d
+
+# HELP go_gc_duration_seconds_sum Total GC duration in seconds
+# TYPE go_gc_duration_seconds_sum gauge
+go_gc_duration_seconds_sum %f
+
+# HELP go_cpu_count Number of CPUs available
+# TYPE go_cpu_count gauge
+go_cpu_count %d
+`,
+			keyCount, totalPoints, uptime,
+			runtime.NumGoroutine(),
+			m.Alloc, m.HeapInuse,
+			float64(m.PauseTotalNs)/1e9,
+			runtime.NumCPU())
+	})
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authenticateRequest(r)
 		if err != nil {
@@ -146,6 +212,12 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 				op.Keys[i] = resolveRequestKeyForUser(k, user.Name)
 			}
 		}
+		// Resolve keys in batch-write points
+		if len(op.Points) > 0 {
+			for i, p := range op.Points {
+				op.Points[i].Key = resolveRequestKeyForUser(p.Key, user.Name)
+			}
+		}
 
 		// Enforce access by folder-based authorization.
 		if op.Key != "" && !isAllowedKeyForUser(op.Key, user.Name) {
@@ -164,13 +236,21 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 				}
 			}
 		}
+		if len(op.Points) > 0 {
+			for _, p := range op.Points {
+				if !isAllowedKeyForUser(p.Key, user.Name) {
+					writeJSON(w, Response{Success: false, Message: "Unauthorized key access"})
+					return
+				}
+			}
+		}
 
 		if op.Operation == "subscribe" {
 			if op.Key == "" {
 				writeJSON(w, Response{Success: false, Message: "Device ID required"})
 				return
 			}
-			handleSSE(w, op.Key, fanoutManager)
+			handleSSE(w, r, op.Key, fanoutManager)
 			return
 		}
 
@@ -228,7 +308,7 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 	return mux
 }
 
-func handleSSE(w http.ResponseWriter, key string, fanoutManager *fanout.Fanout) {
+func handleSSE(w http.ResponseWriter, r *http.Request, key string, fanoutManager *fanout.Fanout) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -239,8 +319,8 @@ func handleSSE(w http.ResponseWriter, key string, fanoutManager *fanout.Fanout) 
 		return
 	}
 
-	id := time.Now().UnixNano()
-	fanoutManager.AddConsumer(int(id), func(msg models.DataPoint) {
+	id := int(sseConsumerID.Add(1))
+	fanoutManager.AddConsumer(id, func(msg models.DataPoint) {
 		if msg.Key == key {
 			resp := Response{Success: true, Data: msg}
 			jsonData, _ := json.Marshal(resp)
@@ -249,7 +329,7 @@ func handleSSE(w http.ResponseWriter, key string, fanoutManager *fanout.Fanout) 
 		}
 	})
 
-	// Wait until connection is closed
-	select {}
+	// Wait until connection is closed, then clean up
+	<-r.Context().Done()
+	fanoutManager.RemoveConsumer(id)
 }
-

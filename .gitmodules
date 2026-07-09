@@ -1,0 +1,6 @@
+[submodule "homepage"]
+	path = homepage
+	url = https://github.com/abbychau/gtsdb-homepage.git
+[submodule "admin"]
+	path = admin
+	url = https://github.com/abbychau/gtsdb-admin.git

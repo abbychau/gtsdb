@@ -6,10 +6,13 @@ import (
 	"gtsdb/buffer"
 	"gtsdb/models"
 	"gtsdb/utils"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var serverStartTime = time.Now()
 
 type WriteRequest struct {
 	Value     float64 `json:"value"`
@@ -31,16 +34,33 @@ type DeleteDataPointRequest struct {
 	TimestampTo   int64    `json:"timestampTo,omitempty"`
 }
 
+type ExportRequest struct {
+	Format      string `json:"format,omitempty"`       // "csv" or "json"
+	StartTime   int64  `json:"start_timestamp,omitempty"`
+	EndTime     int64  `json:"end_timestamp,omitempty"`
+	Downsample  int    `json:"downsampling,omitempty"`
+	LastX       int    `json:"lastx,omitempty"`
+	Aggregation string `json:"aggregation,omitempty"`
+}
+
+type BatchWritePoint struct {
+	Key       string  `json:"key"`
+	Value     float64 `json:"value"`
+	Timestamp int64   `json:"timestamp,omitempty"`
+}
+
 type Operation struct {
 	Operation string                  `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "reloadkey", "multi-read", "data-patch", "deleteDataPointForValue"
 	Write     *WriteRequest           `json:"write,omitempty"`
 	Read      *ReadRequest            `json:"read,omitempty"`
+	Export    *ExportRequest          `json:"export,omitempty"`
 	Payload   *DeleteDataPointRequest `json:"payload,omitempty"`
 	Key       string                  `json:"key,omitempty"`
 	ToKey     string                  `json:"tokey,omitempty"`
 	Keys      []string                `json:"keys,omitempty"`
-	Data      string                  `json:"data,omitempty"`  // CSV data for patch operation
-	Since     int64                   `json:"since,omitempty"` // Optional timestamp for subscribe operation
+	Data      string                  `json:"data,omitempty"`               // CSV data for patch operation
+	Points    []BatchWritePoint       `json:"points,omitempty"`             // Batch write points
+	Since     int64                   `json:"since,omitempty"`              // Optional timestamp for subscribe operation
 }
 
 type Response struct {
@@ -51,6 +71,44 @@ type Response struct {
 	MultiData       map[string][]models.DataPoint `json:"multi_data,omitempty"`
 }
 
+const (
+	minValidTimestamp  int64 = 946684800  // 2000-01-01
+	maxValidTimestamp  int64 = 4102444800 // 2100-01-01
+	maxPatchDataLength int   = 10 * 1024 * 1024 // 10MB
+)
+
+// validateTimestamp checks if a timestamp is within a reasonable range
+func validateTimestamp(ts int64) bool {
+	if ts > 0 && (ts < minValidTimestamp || ts > maxValidTimestamp) {
+		return false
+	}
+	return true
+}
+
+// validateKey checks for path traversal and other unsafe characters
+func validateKey(key string) bool {
+	if key == "" {
+		return true // empty check is handled separately
+	}
+	// Block path traversal
+	if strings.Contains(key, "..") {
+		return false
+	}
+	// Block null bytes
+	if strings.ContainsRune(key, 0) {
+		return false
+	}
+	// Block keys starting with / or \
+	if strings.HasPrefix(key, "/") || strings.HasPrefix(key, "\\") {
+		return false
+	}
+	// Reasonable max length
+	if len(key) > 512 {
+		return false
+	}
+	return true
+}
+
 // actions that no need key
 var noKeyActions = map[string]bool{
 	"serverinfo":   true,
@@ -58,6 +116,7 @@ var noKeyActions = map[string]bool{
 	"flush":        true,
 	"idswithcount": true,
 	"multi-read":   true,
+	"batch-write":  true,
 }
 
 func HandleOperation(op Operation) Response {
@@ -67,14 +126,71 @@ func HandleOperation(op Operation) Response {
 		return Response{Success: false, Message: "Key required"}
 	}
 
+	// Validate all keys for path traversal
+	if !noKeyActions[loweredOperation] && !validateKey(op.Key) {
+		return Response{Success: false, Message: "Invalid key: contains unsafe characters"}
+	}
+	if op.ToKey != "" && !validateKey(op.ToKey) {
+		return Response{Success: false, Message: "Invalid toKey: contains unsafe characters"}
+	}
+	for _, k := range op.Keys {
+		if !validateKey(k) {
+			return Response{Success: false, Message: "Invalid key in keys array: contains unsafe characters"}
+		}
+	}
+
 	switch loweredOperation {
 	case "serverinfo":
-		var data = map[string]interface{}{}
-		data["version"] = "1.0"
-		data["key-count"] = len(buffer.GetAllIds())
-		data["health"] = "ok"
-
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		data := map[string]interface{}{
+			"version":           "1.0",
+			"key_count":         len(buffer.GetAllIds()),
+			"health":            "ok",
+			"uptime_seconds":    int(time.Since(serverStartTime).Seconds()),
+			"goroutines":        runtime.NumGoroutine(),
+			"memory_alloc_mb":   float64(m.Alloc) / 1024 / 1024,
+			"memory_total_mb":   float64(m.TotalAlloc) / 1024 / 1024,
+			"num_cpu":           runtime.NumCPU(),
+			"listen_tcp":        utils.TcpListenAddr,
+			"listen_http":       utils.HttpListenAddr,
+			"data_dir":          utils.DataDir,
+			"file_handle_lru":   utils.FileHandleLRUCapacity,
+		}
 		return Response{Success: true, Data: data}
+	case "export":
+		if op.Export == nil {
+			return Response{Success: false, Message: "Export parameters required"}
+		}
+		if op.Key == "" {
+			return Response{Success: false, Message: "Key required"}
+		}
+		format := op.Export.Format
+		if format == "" {
+			format = "json"
+		}
+		if format != "csv" && format != "json" {
+			return Response{Success: false, Message: "Format must be 'csv' or 'json'"}
+		}
+
+		var points []models.DataPoint
+		if op.Export.LastX > 0 {
+			points = buffer.ReadLastDataPoints(op.Key, op.Export.LastX)
+		} else if op.Export.StartTime > 0 && op.Export.EndTime > 0 {
+			points = buffer.ReadDataPoints(op.Key, op.Export.StartTime, op.Export.EndTime, op.Export.Downsample, op.Export.Aggregation)
+		} else {
+			points = buffer.ReadLastDataPoints(op.Key, 1000)
+		}
+
+		if format == "csv" {
+			var sb strings.Builder
+			sb.WriteString("key,timestamp,value\n")
+			for _, p := range points {
+				sb.WriteString(fmt.Sprintf("%s,%d,%f\n", p.Key, p.Timestamp, p.Value))
+			}
+			return Response{Success: true, Data: sb.String()}
+		}
+		return Response{Success: true, Data: points}
 	case "initkey":
 		buffer.InitKey(op.Key)
 		return Response{Success: true, Message: "Key initialized: " + op.Key}
@@ -97,6 +213,8 @@ func HandleOperation(op Operation) Response {
 		}
 		if op.Write.Timestamp <= 0 {
 			op.Write.Timestamp = time.Now().Unix()
+		} else if !validateTimestamp(op.Write.Timestamp) {
+			return Response{Success: false, Message: "Timestamp out of valid range (2000-2100)"}
 		}
 
 		dataPoint := models.DataPoint{
@@ -106,6 +224,36 @@ func HandleOperation(op Operation) Response {
 		}
 		buffer.StoreDataPointBuffer(dataPoint)
 		return Response{Success: true, Message: "Data point stored"}
+
+	case "batch-write":
+		if len(op.Points) == 0 {
+			return Response{Success: false, Message: "Points array required"}
+		}
+		if len(op.Points) > 10000 {
+			return Response{Success: false, Message: "Batch size exceeds maximum (10000)"}
+		}
+		now := time.Now().Unix()
+		for _, p := range op.Points {
+			if p.Key == "" {
+				return Response{Success: false, Message: "Key required for all points"}
+			}
+			if !validateKey(p.Key) {
+				return Response{Success: false, Message: "Invalid key in batch: " + p.Key}
+			}
+			ts := p.Timestamp
+			if ts <= 0 {
+				ts = now
+			} else if !validateTimestamp(ts) {
+				return Response{Success: false, Message: "Timestamp out of valid range for key: " + p.Key}
+			}
+			dataPoint := models.DataPoint{
+				Key:       p.Key,
+				Timestamp: ts,
+				Value:     p.Value,
+			}
+			buffer.StoreDataPointBuffer(dataPoint)
+		}
+		return Response{Success: true, Message: fmt.Sprintf("Stored %d data points", len(op.Points))}
 
 	case "read":
 		if op.Read == nil {
@@ -121,6 +269,10 @@ func HandleOperation(op Operation) Response {
 		// start time must be less than end time
 		if op.Read.StartTime > 0 && op.Read.EndTime > 0 && op.Read.StartTime > op.Read.EndTime {
 			return Response{Success: false, Message: "Start time must be less than end time"}
+		}
+		// validate timestamps
+		if !validateTimestamp(op.Read.StartTime) || !validateTimestamp(op.Read.EndTime) {
+			return Response{Success: false, Message: "Timestamp out of valid range (2000-2100)"}
 		}
 		utils.Log("Read request: %v", op.Read)
 		var response []models.DataPoint
@@ -225,10 +377,18 @@ func HandleOperation(op Operation) Response {
 	case "flush":
 		buffer.FlushRemainingDataPoints()
 		return Response{Success: true, Message: "Data flushed"}
+	case "compact":
+		if err := buffer.CompactKey(op.Key); err != nil {
+			return Response{Success: false, Message: "Compaction failed: " + err.Error()}
+		}
+		return Response{Success: true, Message: "Key compacted: " + op.Key}
 
 	case "data-patch":
 		if op.Data == "" {
 			return Response{Success: false, Message: "Data required (CSV or JSON array)"}
+		}
+		if len(op.Data) > maxPatchDataLength {
+			return Response{Success: false, Message: fmt.Sprintf("Data too large: max %d bytes", maxPatchDataLength)}
 		}
 
 		var points []models.DataPoint
@@ -303,6 +463,9 @@ func HandleOperation(op Operation) Response {
 		}
 		if op.Payload.TimestampFrom > 0 && op.Payload.TimestampTo > 0 && op.Payload.TimestampFrom > op.Payload.TimestampTo {
 			return Response{Success: false, Message: "timestampFrom must be less than or equal to timestampTo"}
+		}
+		if !validateTimestamp(op.Payload.TimestampFrom) || !validateTimestamp(op.Payload.TimestampTo) {
+			return Response{Success: false, Message: "Timestamp out of valid range (2000-2100)"}
 		}
 
 		value := 0.0
