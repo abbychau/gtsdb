@@ -144,9 +144,14 @@ func loadConfig(iniFile string) {
 			utils.SyncMode = "async"
 		}
 
-		// Load sync interval (ms), default 500ms
+		// Load sync interval (ms), default 1000ms
 		if interval := cfg.Section("buffer").Key("sync_interval_ms").MustInt(1000); interval > 0 {
 			utils.SyncIntervalMs = interval
+		}
+
+		// Load data point cache size (in-memory ring buffer per key for reads)
+		if cacheSize := cfg.Section("buffer").Key("cache_size").MustInt(0); cacheSize > 0 {
+			utils.DataPointCacheSize = cacheSize
 		}
 	}
 
@@ -156,6 +161,7 @@ func loadConfig(iniFile string) {
 	utils.Logln("文件句柄LRU容量： ", utils.FileHandleLRUCapacity)
 
 	buffer.InitFileHandles()
+	buffer.SetCacheSize(utils.DataPointCacheSize)
 	buffer.InitIDSet()
 
 	// Start async flusher if configured

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bufio"
-	"encoding/json"
 	"gtsdb/auth"
 	"gtsdb/buffer"
 	"gtsdb/fanout"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	json "github.com/bytedance/sonic"
+
 	"math/rand"
 	"net"
 	"slices"
@@ -18,9 +19,24 @@ import (
 )
 
 // writeTCPResponse encodes a Response as JSON to the TCP connection.
-// Returns false if the write fails (connection likely dead).
 func writeTCPResponse(conn net.Conn, resp Response) bool {
-	return json.NewEncoder(conn).Encode(resp) == nil
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return false
+	}
+	data = append(data, '\n')
+	_, err = conn.Write(data)
+	return err == nil
+}
+
+func connWriteJSON(conn net.Conn, v interface{}) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	_, err = conn.Write(data)
+	return err
 }
 
 func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
@@ -59,7 +75,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				return
 			case <-ticker.C:
 				_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := json.NewEncoder(conn).Encode(Response{Success: true, Message: "ping"}); err != nil {
+				if err := connWriteJSON(conn, Response{Success: true, Message: "ping"}); err != nil {
 					utils.Log("Client %d failed ping", id)
 					cleanupOnce.Do(cleanup)
 					return
@@ -71,8 +87,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	for scanner.Scan() {
 		var op Operation
 		if err := json.Unmarshal(scanner.Bytes(), &op); err != nil {
-			response := Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()}
-			_ = json.NewEncoder(conn).Encode(response)
+			connWriteJSON(conn, Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()})
 			continue
 		}
 
@@ -134,6 +149,11 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		if len(op.Keys) > 0 {
 			for i, k := range op.Keys {
 				op.Keys[i] = prefix + k
+			}
+		}
+		if len(op.Points) > 0 {
+			for i := range op.Points {
+				op.Points[i].Key = prefix + op.Points[i].Key
 			}
 		}
 

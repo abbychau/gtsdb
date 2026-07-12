@@ -62,3 +62,23 @@ func (rb *RingBuffer[T]) Size() int {
 func (rb *RingBuffer[T]) Capacity() int {
 	return len(rb.buffer)
 }
+
+// GetLast returns the last n items in insertion order with a single lock acquisition.
+// If n > size, returns all items. Returns nil if n <= 0.
+func (rb *RingBuffer[T]) GetLast(n int) []T {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+	if n <= 0 || rb.size == 0 {
+		return nil
+	}
+	if n > rb.size {
+		n = rb.size
+	}
+	result := make([]T, n)
+	// The last n items start at (head + size - n) % capacity
+	start := (rb.head + rb.size - n) % len(rb.buffer)
+	for i := 0; i < n; i++ {
+		result[i] = rb.buffer[(start+i)%len(rb.buffer)]
+	}
+	return result
+}

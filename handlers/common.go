@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"gtsdb/buffer"
 	"gtsdb/models"
@@ -10,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	json "github.com/bytedance/sonic"
 )
 
 var serverStartTime = time.Now()
@@ -25,6 +26,7 @@ type ReadRequest struct {
 	Downsample  int    `json:"downsampling,omitempty"`
 	LastX       int    `json:"lastx,omitempty"`
 	Aggregation string `json:"aggregation,omitempty"`
+	CountOnly   bool   `json:"count_only,omitempty"` // return only counts, not data
 }
 
 type DeleteDataPointRequest struct {
@@ -69,6 +71,54 @@ type Response struct {
 	Data            interface{}                   `json:"data,omitempty"`
 	ReadQueryParams *ReadRequest                  `json:"read_query_params,omitempty"`
 	MultiData       map[string][]models.DataPoint `json:"multi_data,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler with a fast path for MultiData responses.
+// For multi-read, builds JSON directly without reflection.
+func (r Response) MarshalJSON() ([]byte, error) {
+	if r.MultiData == nil {
+		// Non-multi-read: use sonic (type alias breaks recursion)
+		type respAlias Response
+		return json.Marshal(respAlias(r))
+	}
+
+	// Fast path for multi-read
+	var sb strings.Builder
+	// Estimate: ~80 bytes overhead + keys*keyLen + points*68 bytes each
+	totalEst := 80 + len(r.MultiData)*32
+	for _, pts := range r.MultiData {
+		totalEst += len(pts) * 68
+	}
+	sb.Grow(totalEst)
+
+	sb.WriteString(`{"success":true,"multi_data":{`)
+	first := true
+	for k, pts := range r.MultiData {
+		if !first {
+			sb.WriteByte(',')
+		}
+		first = false
+		sb.WriteByte('"')
+		sb.WriteString(k)
+		sb.WriteString(`":[`)
+		for i, dp := range pts {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			b, _ := dp.MarshalJSON()
+			sb.Write(b)
+		}
+		sb.WriteByte(']')
+	}
+	sb.WriteByte('}')
+
+	if r.ReadQueryParams != nil {
+		sb.WriteString(`,"read_query_params":`)
+		qp, _ := json.Marshal(r.ReadQueryParams)
+		sb.Write(qp)
+	}
+	sb.WriteByte('}')
+	return []byte(sb.String()), nil
 }
 
 const (
@@ -329,41 +379,42 @@ func HandleOperation(op Operation) Response {
 		if op.Read.Aggregation == "" {
 			op.Read.Aggregation = "avg"
 		}
-		// start time and end time are set either both or none
 		if (op.Read.StartTime == 0 && op.Read.EndTime != 0) || (op.Read.StartTime != 0 && op.Read.EndTime == 0) {
 			return Response{Success: false, Message: "Both start and end time required or none"}
 		}
-		// start time must be less than end time
 		if op.Read.StartTime > 0 && op.Read.EndTime > 0 && op.Read.StartTime > op.Read.EndTime {
 			return Response{Success: false, Message: "Start time must be less than end time"}
 		}
 
-		result := make(map[string][]models.DataPoint)
+		// Sequential reads: for in-memory cache hits, this is faster than goroutine overhead
+		result := make(map[string][]models.DataPoint, len(op.Keys))
 		for _, key := range op.Keys {
 			var response []models.DataPoint
 			if op.Read.LastX > 0 {
-				// Use lastx when explicitly specified
 				last := op.Read.LastX
 				if last < 0 {
 					last = last * -1
 				}
 				response = buffer.ReadLastDataPoints(key, last)
 			} else if op.Read.StartTime > 0 && op.Read.EndTime > 0 {
-				// Use timestamp range when both start and end times are provided
 				response = buffer.ReadDataPoints(key, op.Read.StartTime, op.Read.EndTime, op.Read.Downsample, op.Read.Aggregation)
 			} else {
-				// Default to last 1 when no specific parameters are provided
 				response = buffer.ReadLastDataPoints(key, 1)
 			}
-
-			// Log first record of the response for each key
-			if len(response) > 0 && response[0].Key != "" {
-				utils.Log("Multi-read response first record: Key=%s, Timestamp=%d, Value=%f", response[0].Key, response[0].Timestamp, response[0].Value)
-			} else {
-				utils.Log("Multi-read response: no records found for key=%s", key)
-			}
-
 			result[key] = response
+		}
+
+		// Count-only mode: return just the count per key (tiny response)
+		if op.Read.CountOnly {
+			counts := make(map[string]int, len(op.Keys))
+			for k, v := range result {
+				counts[k] = len(v)
+			}
+			return Response{
+				Success:         true,
+				Data:            counts,
+				ReadQueryParams: op.Read,
+			}
 		}
 
 		return Response{

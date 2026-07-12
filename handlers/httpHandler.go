@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"gtsdb/auth"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	json "github.com/bytedance/sonic"
 )
 
 // sseConsumerID is a monotonic counter for SSE consumer IDs, safe across goroutines.
@@ -21,7 +22,7 @@ var sseConsumerID atomic.Int64
 
 func writeJSON(w http.ResponseWriter, response Response) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.ConfigDefault.NewEncoder(w).Encode(response)
 }
 
 func authenticateRequest(r *http.Request) (auth.User, error) {
@@ -97,7 +98,7 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 	// Health check endpoint (no auth required)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.ConfigDefault.NewEncoder(w).Encode(map[string]interface{}{
 			"status":   "ok",
 			"service":  "gtsdb",
 			"version":  "1.0",
@@ -167,7 +168,7 @@ go_cpu_count %d
 		}
 
 		var op Operation
-		if err := json.NewDecoder(r.Body).Decode(&op); err != nil {
+		if err := json.ConfigDefault.NewDecoder(r.Body).Decode(&op); err != nil {
 			writeJSON(w, Response{Success: false, Message: "Invalid request body"})
 			return
 		}

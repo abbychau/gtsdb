@@ -3,7 +3,6 @@ package buffer
 import (
 	"bufio"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"gtsdb/models"
 	"gtsdb/synchronous"
@@ -16,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	json "github.com/bytedance/sonic"
 )
 
 func InitIDSet() {

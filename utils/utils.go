@@ -25,6 +25,7 @@ var (
 	CompactionCompression = false
 	SyncMode              = "async"             // "sync" or "async" — default async for better throughput
 	SyncIntervalMs        = 1000                // ms between periodic flushes in async mode
+	DataPointCacheSize    = 0                   // in-memory ring buffer per key for reads (0=disabled)
 	LogLevel              = int32(LogLevelInfo) // default: info and above
 )
 

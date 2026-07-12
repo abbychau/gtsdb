@@ -361,18 +361,8 @@ func readLastBufferedDataPoints(id string, count int) []models.DataPoint {
 		return []models.DataPoint{}
 	}
 
-	if count > rb.Size() {
-		count = rb.Size()
-	}
-	if count == 0 {
-		return []models.DataPoint{}
-	}
-
-	result := make([]models.DataPoint, count)
-	for i := 0; i < count; i++ {
-		result[i], _ = rb.Get(rb.Size() - count + i)
-	}
-	return result
+	// Single lock acquisition for the entire batch read
+	return rb.GetLast(count)
 }
 
 func downsampleDataPoints(dataPoints []models.DataPoint, downsample int, aggregation string) []models.DataPoint {
@@ -508,4 +498,10 @@ func InitFileHandles() {
 	})
 
 	utils.Logln("Handle LRU 容量：", capacity)
+}
+
+// SetCacheSize configures the in-memory ring buffer size per key for fast reads.
+// Set to 0 to disable (reads go to disk).
+func SetCacheSize(size int) {
+	cacheSize = size
 }
