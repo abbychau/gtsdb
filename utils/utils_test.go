@@ -34,14 +34,14 @@ func TestLoggingFunctions(t *testing.T) {
 		message  interface{}
 		expected string
 	}{
-		{"Log", Log, "test message", "🐹 test message"},
-		{"Error", Error, "error message", "😡 error message"},
-		{"Warning", Warning, "warning message", "😟 warning message"},
-		{"Debug", Debug, "debug message", "🔍🐹 debug message"},
-		{"Logln", Logln, "test message", "🐹 test message"},
-		{"Errorln", Errorln, "error message", "😡 error message"},
-		{"Warningln", Warningln, "warning message", "😟 warning message"},
-		{"Debugln", Debugln, "debug message", "🔍🐹 debug message"},
+		{"Log", Log, "test message", "[INFO]  test message"},
+		{"Error", Error, "error message", "[ERROR] error message"},
+		{"Warning", Warning, "warning message", "[WARN]  warning message"},
+		{"Debug", Debug, "debug message", "[DEBUG] debug message"},
+		{"Logln", Logln, "test message", "[INFO]  test message"},
+		{"Errorln", Errorln, "error message", "[ERROR] error message"},
+		{"Warningln", Warningln, "warning message", "[WARN]  warning message"},
+		{"Debugln", Debugln, "debug message", "[DEBUG] debug message"},
 	}
 
 	for _, tt := range tests {
@@ -93,7 +93,7 @@ func TestPanic(t *testing.T) {
 		w.Close()
 		os.Stdout = old
 		out, _ := io.ReadAll(r)
-		if !strings.Contains(string(out), "🚨🐹🚨") {
+		if !strings.Contains(string(out), "[PANIC]") {
 			t.Errorf("Expected output containing panic emoji, got %s", string(out))
 		}
 	}()

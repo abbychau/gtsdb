@@ -78,6 +78,50 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 		utils.Error("Cannot open data file for %s, skipping write", dataPointId)
 		return
 	}
+
+	// Fast path: batch-write all points using a pre-allocated buffer.
+	// This reduces N individual 16-byte Write() syscalls to 1 large write.
+	if len(dataPoints) > 1 {
+		buf := make([]byte, len(dataPoints)*16)
+		for i, dp := range dataPoints {
+			off := i * 16
+			binary.LittleEndian.PutUint64(buf[off:off+8], uint64(dp.Timestamp))
+			binary.LittleEndian.PutUint64(buf[off+8:off+16], math.Float64bits(dp.Value))
+		}
+		if _, err := dataFile.Write(buf); err != nil {
+			utils.Error("Failed to batch-write data points for %s: %v", dataPointId, err)
+			return
+		}
+
+		// Update counts and index entries (one index entry per indexInterval)
+		countValue, _ := idToCountMap.Load(dataPointId)
+		count := countValue
+		newCount := count.Add(int64(len(dataPoints)))
+		totalDataPoints.Add(int64(len(dataPoints)))
+
+		// Build index entries if needed
+		if indexFile != nil {
+			offset, _ := dataFile.Seek(0, io.SeekEnd)
+			recordStart := offset - int64(len(buf))
+			for i, dp := range dataPoints {
+				if (newCount-int64(len(dataPoints))+int64(i)+1)%indexInterval == 0 {
+					entryOff := recordStart + int64(i*16)
+					if err := writeIndexEntry(indexFile, dp.Timestamp, entryOff); err != nil {
+						utils.Error("Failed to update index for %s: %v", dataPointId, err)
+					}
+				}
+			}
+		}
+
+		if utils.SyncMode == "sync" {
+			dataFile.Sync()
+		} else {
+			dirtyKeys.Add(dataPointId)
+		}
+		return
+	}
+
+	// Slow path: single point (original code path for minimal overhead)
 	for _, dataPoint := range dataPoints {
 		if err := writeRecord(dataFile, dataPoint.Timestamp, dataPoint.Value); err != nil {
 			utils.Error("Failed to write data point for %s: %v", dataPointId, err)
@@ -97,9 +141,13 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 			}
 		}
 	}
-	// Sync once after all points are written instead of per-point
-	if err := dataFile.Sync(); err != nil {
-		utils.Error("Failed to sync data file for %s: %v", dataPointId, err)
+	// Only sync if in legacy sync mode; async flusher handles it otherwise
+	if utils.SyncMode == "sync" {
+		if err := dataFile.Sync(); err != nil {
+			utils.Error("Failed to sync data file for %s: %v", dataPointId, err)
+		}
+	} else {
+		dirtyKeys.Add(dataPointId)
 	}
 }
 
@@ -147,52 +195,39 @@ func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 		return nil, nil
 	}
 
-	// Get file size and calculate actual record count
-	fileInfo, err := file.Stat()
-	if err != nil {
-		utils.Error("Error getting file info: %v", err)
-		return nil, err
+	// Use atomic counter for O(1) size instead of file.Stat() syscall.
+	actualRecordCount := int64(0)
+	if cv, ok := idToCountMap.Load(id); ok {
+		actualRecordCount = cv.Load()
 	}
-	fileSize := fileInfo.Size()
-
-	// Ensure file size is aligned to 16-byte records
-	actualRecordCount := fileSize / 16
-	if count > int(actualRecordCount) {
+	if actualRecordCount == 0 {
+		return nil, nil
+	}
+	if int64(count) > actualRecordCount {
 		count = int(actualRecordCount)
 	}
 
-	// Calculate proper aligned position from the start of valid records
-	alignedFileSize := actualRecordCount * 16
-	seekOffset := int64(count * 16)
-	seekPosition := alignedFileSize - seekOffset
+	// Seek to last N records and batch-read them in one call
+	bufSize := count * 16
+	buf := make([]byte, bufSize)
 
-	_, err = file.Seek(seekPosition, io.SeekStart)
-	if err != nil {
-		utils.Error("Error seeking to position %d: %v", seekPosition, err)
-		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			utils.Error("Error seeking file: %v", err)
-		}
+	// Use ReadAt to avoid O_APPEND seek issues on Windows
+	seekPosition := (actualRecordCount - int64(count)) * 16
+	n, err := file.ReadAt(buf, seekPosition)
+	if err != nil && err != io.EOF {
+		utils.Error("Error reading file: %v", err)
+		return nil, err
 	}
 
-	reader := bufio.NewReader(file)
-
-	var dataPoints []models.DataPoint
-	for {
-		var timestamp int64
-		var value float64
-		err := readRecord(reader, &timestamp, &value)
-		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				break
-			}
-			utils.Error("Error reading file: %v", err)
-			return nil, err
-		}
-
+	// Decode records from buffer
+	dataPoints := make([]models.DataPoint, 0, n/16)
+	for i := 0; i+16 <= n; i += 16 {
+		ts := int64(binary.LittleEndian.Uint64(buf[i : i+8]))
+		val := math.Float64frombits(binary.LittleEndian.Uint64(buf[i+8 : i+16]))
 		dataPoints = append(dataPoints, models.DataPoint{
 			Key:       id,
-			Timestamp: timestamp,
-			Value:     value,
+			Timestamp: ts,
+			Value:     val,
 		})
 	}
 

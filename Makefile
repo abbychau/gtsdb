@@ -19,6 +19,12 @@ lint-fix:
 integration-test:
 	go test -tags=integration -v -count=1 -timeout=60s .
 
+build-desktop:
+	go build -ldflags="-s -w" -trimpath -o "$(HOME)/Desktop/gtsdb.exe" .
+
+build-bench:
+	go build -ldflags="-s -w" -trimpath -o "$(HOME)/Desktop/gtsdb_bench.exe" ./benchmark-repo
+
 deploy:
 	git pull
 	pm2 del gtsdb-patch-remove-data

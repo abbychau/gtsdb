@@ -16,6 +16,15 @@ tcp = 127.0.0.1:5555
 ; achieving ~8x space reduction with negligible read overhead (~85µs per 5000 points)
 ; compaction_compression = true
 
+; Sync mode: "async" (default) or "sync"
+; "async" = periodic background flush (better throughput, slight risk on crash)
+; "sync"  = fsync after every write batch (safe but slower)
+; sync_mode = async
+
+; Sync interval in milliseconds for async mode (default: 500)
+; Lower = less data loss on crash, higher = better throughput
+; sync_interval_ms = 1000
+
 [auth]
 ; User to use when no authentication is provided (optional, default: empty)
 ; If set (e.g. "root"), unauthenticated requests will be treated as this user

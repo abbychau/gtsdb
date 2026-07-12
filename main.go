@@ -112,8 +112,8 @@ func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 }
 
 func loadConfig(iniFile string) {
-	utils.Logln("歡迎使用🐹小倉鼠🐹時序資料庫 🐁🐁 ")
-	utils.Logln("🎶吱吱🎶吱吱🎶 🐹")
+	utils.Logln("GTSDB - Time Series Database")
+	utils.Logln("Starting up...")
 	utils.Log("🏃現在在用 %v 唷", iniFile)
 	utils.Log("今天是：%s 哦", time.Now().Format("2006-01-02 15:04:05"))
 
@@ -135,6 +135,19 @@ func loadConfig(iniFile string) {
 		}
 		// Load WAL compression setting
 		utils.CompactionCompression = cfg.Section("buffer").Key("compaction_compression").MustBool(false)
+
+		// Load sync mode: "async" (default) or "sync"
+		syncMode := cfg.Section("buffer").Key("sync_mode").String()
+		if syncMode == "sync" {
+			utils.SyncMode = "sync"
+		} else {
+			utils.SyncMode = "async"
+		}
+
+		// Load sync interval (ms), default 500ms
+		if interval := cfg.Section("buffer").Key("sync_interval_ms").MustInt(1000); interval > 0 {
+			utils.SyncIntervalMs = interval
+		}
 	}
 
 	utils.Logln(" TCP 監聽地址： ", utils.TcpListenAddr)
@@ -145,13 +158,19 @@ func loadConfig(iniFile string) {
 	buffer.InitFileHandles()
 	buffer.InitIDSet()
 
+	// Start async flusher if configured
+	if utils.SyncMode == "async" {
+		buffer.StartAsyncFlusher(time.Duration(utils.SyncIntervalMs) * time.Millisecond)
+	}
+
 	utils.Log("📊 我們現在有 %d 組時序", len(buffer.GetAllIds()))
 }
 
 func gracefulShutdown() {
-	utils.Logln("中斷信號來了！小倉鼠要先把所有數據存好...吱吱")
+	utils.Logln("Shutting down — flushing all buffers...")
+	buffer.StopAsyncFlusher()
 	buffer.FlushRemainingDataPoints()
-	utils.Logln("安全放好食物回家了啦！拜拜！下次來玩喔！")
+	utils.Logln("Shutdown complete.")
 }
 
 func migrateData() {

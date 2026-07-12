@@ -35,7 +35,7 @@ type DeleteDataPointRequest struct {
 }
 
 type ExportRequest struct {
-	Format      string `json:"format,omitempty"`       // "csv" or "json"
+	Format      string `json:"format,omitempty"` // "csv" or "json"
 	StartTime   int64  `json:"start_timestamp,omitempty"`
 	EndTime     int64  `json:"end_timestamp,omitempty"`
 	Downsample  int    `json:"downsampling,omitempty"`
@@ -58,9 +58,9 @@ type Operation struct {
 	Key       string                  `json:"key,omitempty"`
 	ToKey     string                  `json:"tokey,omitempty"`
 	Keys      []string                `json:"keys,omitempty"`
-	Data      string                  `json:"data,omitempty"`               // CSV data for patch operation
-	Points    []BatchWritePoint       `json:"points,omitempty"`             // Batch write points
-	Since     int64                   `json:"since,omitempty"`              // Optional timestamp for subscribe operation
+	Data      string                  `json:"data,omitempty"`   // CSV data for patch operation
+	Points    []BatchWritePoint       `json:"points,omitempty"` // Batch write points
+	Since     int64                   `json:"since,omitempty"`  // Optional timestamp for subscribe operation
 }
 
 type Response struct {
@@ -72,8 +72,8 @@ type Response struct {
 }
 
 const (
-	minValidTimestamp  int64 = 946684800  // 2000-01-01
-	maxValidTimestamp  int64 = 4102444800 // 2100-01-01
+	minValidTimestamp  int64 = 946684800        // 2000-01-01
+	maxValidTimestamp  int64 = 4102444800       // 2100-01-01
 	maxPatchDataLength int   = 10 * 1024 * 1024 // 10MB
 )
 
@@ -144,18 +144,18 @@ func HandleOperation(op Operation) Response {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 		data := map[string]interface{}{
-			"version":           "1.0",
-			"key_count":         len(buffer.GetAllIds()),
-			"health":            "ok",
-			"uptime_seconds":    int(time.Since(serverStartTime).Seconds()),
-			"goroutines":        runtime.NumGoroutine(),
-			"memory_alloc_mb":   float64(m.Alloc) / 1024 / 1024,
-			"memory_total_mb":   float64(m.TotalAlloc) / 1024 / 1024,
-			"num_cpu":           runtime.NumCPU(),
-			"listen_tcp":        utils.TcpListenAddr,
-			"listen_http":       utils.HttpListenAddr,
-			"data_dir":          utils.DataDir,
-			"file_handle_lru":   utils.FileHandleLRUCapacity,
+			"version":         "1.0",
+			"key_count":       len(buffer.GetAllIds()),
+			"health":          "ok",
+			"uptime_seconds":  int(time.Since(serverStartTime).Seconds()),
+			"goroutines":      runtime.NumGoroutine(),
+			"memory_alloc_mb": float64(m.Alloc) / 1024 / 1024,
+			"memory_total_mb": float64(m.TotalAlloc) / 1024 / 1024,
+			"num_cpu":         runtime.NumCPU(),
+			"listen_tcp":      utils.TcpListenAddr,
+			"listen_http":     utils.HttpListenAddr,
+			"data_dir":        utils.DataDir,
+			"file_handle_lru": utils.FileHandleLRUCapacity,
 		}
 		return Response{Success: true, Data: data}
 	case "export":
@@ -233,6 +233,7 @@ func HandleOperation(op Operation) Response {
 			return Response{Success: false, Message: "Batch size exceeds maximum (10000)"}
 		}
 		now := time.Now().Unix()
+		dataPoints := make([]models.DataPoint, 0, len(op.Points))
 		for _, p := range op.Points {
 			if p.Key == "" {
 				return Response{Success: false, Message: "Key required for all points"}
@@ -246,13 +247,13 @@ func HandleOperation(op Operation) Response {
 			} else if !validateTimestamp(ts) {
 				return Response{Success: false, Message: "Timestamp out of valid range for key: " + p.Key}
 			}
-			dataPoint := models.DataPoint{
+			dataPoints = append(dataPoints, models.DataPoint{
 				Key:       p.Key,
 				Timestamp: ts,
 				Value:     p.Value,
-			}
-			buffer.StoreDataPointBuffer(dataPoint)
+			})
 		}
+		buffer.StoreDataPointsBuffer(dataPoints)
 		return Response{Success: true, Message: fmt.Sprintf("Stored %d data points", len(op.Points))}
 
 	case "read":

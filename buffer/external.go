@@ -237,6 +237,50 @@ func StoreDataPointBuffer(dataPoint models.DataPoint) {
 	lastTimestamp.Store(dataPoint.Key, dataPoint.Timestamp)
 }
 
+// StoreDataPointsBuffer stores a batch of data points, grouping by key for efficient writes.
+// Instead of acquiring per-key locks once per point, it groups points by key and writes
+// all points for each key in a single storeDataPoints call, reducing lock contention.
+func StoreDataPointsBuffer(dataPoints []models.DataPoint) {
+	if len(dataPoints) == 0 {
+		return
+	}
+
+	// Fast path: single point delegates to existing function
+	if len(dataPoints) == 1 {
+		StoreDataPointBuffer(dataPoints[0])
+		return
+	}
+
+	// Group points by key
+	keyGroups := make(map[string][]models.DataPoint, 16)
+	for _, dp := range dataPoints {
+		allIds.Add(dp.Key)
+		keyGroups[dp.Key] = append(keyGroups[dp.Key], dp)
+	}
+
+	// Write each key's points in one call, then update caches
+	for key, points := range keyGroups {
+		storeDataPoints(key, points)
+
+		// Update ring buffer cache if enabled
+		if cacheSize > 0 {
+			rb, ok := idToRingBufferMap.Load(key)
+			if !ok {
+				newRb := synchronous.NewRingBuffer[models.DataPoint](cacheSize)
+				idToRingBufferMap.Store(key, newRb)
+				rb = newRb
+			}
+			for _, dp := range points {
+				rb.Push(dp)
+			}
+		}
+
+		last := points[len(points)-1]
+		lastValue.Store(key, last.Value)
+		lastTimestamp.Store(key, last.Timestamp)
+	}
+}
+
 func PatchDataPoints(dataPoints []models.DataPoint, key string) {
 	/*
 		1. sort input data points by timestamp
@@ -500,20 +544,7 @@ func ReadLastDataPoints(id string, count int) []models.DataPoint {
 }
 
 func FlushRemainingDataPoints() {
-
-	//fsync all file handles
-	dataFileHandles.Range(func(key string, value *os.File) bool {
-		if err := value.Sync(); err != nil {
-			utils.Error("Error syncing data file: %v", err)
-		}
-		return true
-	})
-	indexFileHandles.Range(func(key string, value *os.File) bool {
-		if err := value.Sync(); err != nil {
-			utils.Error("Error syncing index file: %v", err)
-		}
-		return true
-	})
+	SyncAllHandles()
 }
 
 func FormatDataPoints(dataPoints []models.DataPoint) string {

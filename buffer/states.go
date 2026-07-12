@@ -32,3 +32,7 @@ var totalDataPoints atomic.Int64
 var renameLock sync.Mutex
 var dataPatchLocks = concurrent.NewMap[string, *sync.Mutex]()
 var fileWriteLocks = concurrent.NewMap[string, *sync.Mutex]()
+
+// dirtyKeys tracks which keys have pending writes that need to be synced.
+// Only these keys are synced on each async-flusher tick, avoiding wasted fsync calls.
+var dirtyKeys = concurrent.NewSet[string]()

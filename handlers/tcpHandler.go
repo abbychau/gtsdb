@@ -27,6 +27,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	defer conn.Close()
 	id := rand.Intn(1000) + int(time.Now().UnixNano())
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB max token size for batch writes
 	subscribingDevices := []string{}
 
 	var currentUser auth.User
