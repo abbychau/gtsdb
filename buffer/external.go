@@ -16,7 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	json "github.com/bytedance/sonic"
+	json "github.com/velox-io/json"
 )
 
 func InitIDSet() {

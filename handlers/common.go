@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	json "github.com/bytedance/sonic"
+	json "github.com/velox-io/json"
 )
 
 var serverStartTime = time.Now()

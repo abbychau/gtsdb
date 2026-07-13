@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	json "github.com/bytedance/sonic"
+	json "github.com/velox-io/json"
 
 	"math/rand"
 	"net"
