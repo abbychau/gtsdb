@@ -261,6 +261,21 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			}
 		}
 
+		// Use binary format if requested (faster than JSON for data-heavy responses)
+		if op.ResponseFormat == "binary" {
+			switch op.Operation {
+			case "multi-read":
+				if response.MultiData != nil {
+					_ = writeBinaryMultiData(conn, response.MultiData)
+					continue
+				}
+			case "read":
+				if dataPoints, ok := response.Data.([]models.DataPoint); ok {
+					_ = writeBinaryDataPoints(conn, strings.TrimPrefix(op.Key, prefix), dataPoints)
+					continue
+				}
+			}
+		}
 		writeTCPResponse(conn, response)
 	}
 

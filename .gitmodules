@@ -7,3 +7,6 @@
 [submodule "benchmark"]
 	path = benchmark
 	url = https://github.com/abbychau/gtsdb-benchmark.git
+[submodule "drivers"]
+	path = drivers
+	url = https://github.com/abbychau/gtsdb-drivers.git

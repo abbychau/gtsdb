@@ -52,17 +52,18 @@ type BatchWritePoint struct {
 }
 
 type Operation struct {
-	Operation string                  `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "reloadkey", "multi-read", "data-patch", "deleteDataPointForValue"
-	Write     *WriteRequest           `json:"write,omitempty"`
-	Read      *ReadRequest            `json:"read,omitempty"`
-	Export    *ExportRequest          `json:"export,omitempty"`
-	Payload   *DeleteDataPointRequest `json:"payload,omitempty"`
-	Key       string                  `json:"key,omitempty"`
-	ToKey     string                  `json:"tokey,omitempty"`
-	Keys      []string                `json:"keys,omitempty"`
-	Data      string                  `json:"data,omitempty"`   // CSV data for patch operation
-	Points    []BatchWritePoint       `json:"points,omitempty"` // Batch write points
-	Since     int64                   `json:"since,omitempty"`  // Optional timestamp for subscribe operation
+	Operation      string                  `json:"operation"` // "write", "read", "flush", "subscribe", "unsubscribe", "initkey", "renamekey", "deletekey", "reloadkey", "multi-read", "data-patch", "deleteDataPointForValue"
+	Write          *WriteRequest           `json:"write,omitempty"`
+	Read           *ReadRequest            `json:"read,omitempty"`
+	Export         *ExportRequest          `json:"export,omitempty"`
+	Payload        *DeleteDataPointRequest `json:"payload,omitempty"`
+	Key            string                  `json:"key,omitempty"`
+	ToKey          string                  `json:"tokey,omitempty"`
+	Keys           []string                `json:"keys,omitempty"`
+	Data           string                  `json:"data,omitempty"`            // CSV data for patch operation
+	Points         []BatchWritePoint       `json:"points,omitempty"`          // Batch write points
+	Since          int64                   `json:"since,omitempty"`           // Optional timestamp for subscribe operation
+	ResponseFormat string                  `json:"response_format,omitempty"` // "json" (default) or "binary"
 }
 
 type Response struct {
