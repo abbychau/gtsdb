@@ -265,5 +265,8 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	}
 
 	// Cleanup when the connection ends (safe via sync.Once)
+	if err := scanner.Err(); err != nil {
+		utils.Log("Client %d scanner error: %v", id, err)
+	}
 	cleanupOnce.Do(cleanup)
 }
