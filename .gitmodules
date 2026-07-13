@@ -4,6 +4,6 @@
 [submodule "admin"]
 	path = admin
 	url = https://github.com/abbychau/gtsdb-admin.git
-[submodule "benchmark-repo"]
-	path = benchmark-repo
+[submodule "benchmark"]
+	path = benchmark
 	url = https://github.com/abbychau/gtsdb-benchmark.git
