@@ -9,6 +9,7 @@
   <a href="./docs/coverage-full.svg"><img alt="Coverage" src="./docs/coverage.svg" /></a>
   <a href="https://gtsdb-admin.vercel.app/"><img alt="Admin Tool" src="https://img.shields.io/badge/admin%20tool-demo-blue" /></a>
   <a href="https://github.com/abbychau/gtsdb/releases"><img alt="Release" src="https://img.shields.io/github/v/release/abbychau/gtsdb" /></a>
+  <a href="https://hub.docker.com/r/abbychau/gtsdb"><img alt="Docker" src="https://img.shields.io/badge/docker-abbychau%2Fgtsdb-blue?logo=docker" /></a>
 </p>
 
 A simple, high-performance timeseries database for IoT and edge computing. **HTTP + TCP**, **sub-millisecond reads**, **233× faster than InfluxDB on writes**, **Gorilla compression**.

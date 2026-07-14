@@ -1,0 +1,22 @@
+services:
+  gtsdb:
+    image: abbychau/gtsdb:latest
+    container_name: gtsdb
+    ports:
+      - "5555:5555"  # TCP
+      - "5556:5556"  # HTTP
+    volumes:
+      - gtsdb_data:/data
+    environment:
+      - GTSDB_TCP_ADDR=0.0.0.0:5555
+      - GTSDB_HTTP_ADDR=0.0.0.0:5556
+      - GTSDB_DATA_DIR=/data
+      - GTSDB_CACHE_SIZE=10000
+      - GTSDB_SYNC_MODE=async
+      - GTSDB_COMPRESSION=true
+      # - GTSDB_NO_AUTH_USER=root    # uncomment to skip auth
+      # - GTSDB_ROOT_TOKEN=secret    # uncomment to set root token
+    restart: unless-stopped
+
+volumes:
+  gtsdb_data:
