@@ -178,7 +178,7 @@ go_cpu_count %d
 				writeJSON(w, Response{Success: false, Message: "Unauthorized"})
 				return
 			}
-			newUser, err := auth.CreateUser(op.Key)
+			newUser, err := auth.CreateUserWithQuota(op.Key, op.MaxPoints)
 			if err != nil {
 				writeJSON(w, Response{Success: false, Message: err.Error()})
 				return
@@ -198,6 +198,23 @@ go_cpu_count %d
 				return
 			}
 			writeJSON(w, Response{Success: true, Data: map[string]string{"token": token}})
+			return
+		}
+
+		if op.Operation == "setquota" {
+			if user.Name != "root" {
+				writeJSON(w, Response{Success: false, Message: "Unauthorized"})
+				return
+			}
+			if op.Key == "" {
+				writeJSON(w, Response{Success: false, Message: "Username required"})
+				return
+			}
+			if err := auth.SetUserQuota(op.Key, op.MaxPoints); err != nil {
+				writeJSON(w, Response{Success: false, Message: err.Error()})
+				return
+			}
+			writeJSON(w, Response{Success: true, Message: fmt.Sprintf("Quota set for %s: %d points", op.Key, op.MaxPoints)})
 			return
 		}
 
@@ -255,7 +272,13 @@ go_cpu_count %d
 			return
 		}
 
+		if msg := quotaCheckBeforeWrite(user.Name, op); msg != "" {
+			writeJSON(w, Response{Success: false, Message: msg})
+			return
+		}
+
 		response := HandleOperation(op)
+		quotaAccountAfterWrite(user.Name, op, response.Success)
 
 		// Filter response to folder-based visibility. Hide user/root folder prefix in response.
 		switch op.Operation {

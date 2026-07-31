@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gtsdb/buffer"
 	"gtsdb/models"
+	"gtsdb/quota"
 	"gtsdb/utils"
 	"runtime"
 	"strconv"
@@ -64,6 +65,7 @@ type Operation struct {
 	Points         []BatchWritePoint       `json:"points,omitempty"`          // Batch write points
 	Since          int64                   `json:"since,omitempty"`           // Optional timestamp for subscribe operation
 	ResponseFormat string                  `json:"response_format,omitempty"` // "json" (default) or "binary"
+	MaxPoints      int64                   `json:"max_points,omitempty"`      // setquota: max stored data points (0 = unlimited)
 }
 
 type Response struct {
@@ -168,6 +170,72 @@ var noKeyActions = map[string]bool{
 	"idswithcount": true,
 	"multi-read":   true,
 	"batch-write":  true,
+}
+
+// quotaWriteOps are the operations that grow a user's stored data points.
+var quotaWriteOps = map[string]bool{
+	"write":       true,
+	"batch-write": true,
+	"data-patch":  true,
+}
+
+// estimateIncoming counts how many data points a write operation would add.
+// Used only for O(1)-ish quota pre-checking (no file IO); the periodic
+// reconciler keeps the authoritative per-user count. O(payload) worst case.
+func estimateIncoming(op Operation) int64 {
+	switch strings.ToLower(op.Operation) {
+	case "write":
+		return 1
+	case "batch-write":
+		return int64(len(op.Points))
+	case "data-patch":
+		trimmed := strings.TrimSpace(op.Data)
+		if trimmed == "" {
+			return 0
+		}
+		if strings.HasPrefix(trimmed, "[") {
+			// JSON array: count objects
+			var n int64
+			for _, c := range trimmed {
+				if c == '{' {
+					n++
+				}
+			}
+			return n
+		}
+		// CSV: count non-empty lines
+		var n int64
+		for _, line := range strings.Split(op.Data, "\n") {
+			if strings.TrimSpace(line) != "" {
+				n++
+			}
+		}
+		return n
+	}
+	return 0
+}
+
+// quotaCheckBeforeWrite returns a non-empty rejection message when a write
+// would exceed the user's storage quota. Call BEFORE HandleOperation (after
+// keys are resolved/authorized).
+func quotaCheckBeforeWrite(userName string, op Operation) string {
+	if !quotaWriteOps[strings.ToLower(op.Operation)] {
+		return ""
+	}
+	if incoming := estimateIncoming(op); incoming > 0 && !quota.CheckWrite(userName, incoming) {
+		return fmt.Sprintf("Data point storage quota exceeded (max %d points). Delete data or upgrade.", quota.MaxPoints(userName))
+	}
+	return ""
+}
+
+// quotaAccountAfterWrite records a successful write against the user's counter.
+func quotaAccountAfterWrite(userName string, op Operation, success bool) {
+	if !success || !quotaWriteOps[strings.ToLower(op.Operation)] {
+		return
+	}
+	if incoming := estimateIncoming(op); incoming > 0 {
+		quota.AddPoints(userName, incoming)
+	}
 }
 
 func HandleOperation(op Operation) Response {

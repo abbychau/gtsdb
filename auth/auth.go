@@ -11,8 +11,9 @@ import (
 )
 
 type User struct {
-	Name  string `json:"name"`
-	Token string `json:"token"`
+	Name      string `json:"name"`
+	Token     string `json:"token"`
+	MaxPoints int64  `json:"max_points,omitempty"` // max stored data points; 0 = unlimited
 }
 
 var (
@@ -89,6 +90,10 @@ func generateToken() (string, error) {
 }
 
 func CreateUser(name string) (User, error) {
+	return CreateUserWithQuota(name, 0)
+}
+
+func CreateUserWithQuota(name string, maxPoints int64) (User, error) {
 	usersMutex.Lock()
 	defer usersMutex.Unlock()
 
@@ -131,10 +136,25 @@ func CreateUser(name string) (User, error) {
 		return User{}, errors.New("failed to generate unique token")
 	}
 
-	user := User{Name: name, Token: token}
+	user := User{Name: name, Token: token, MaxPoints: maxPoints}
 	users[name] = user
 	saveUsers()
 	return user, nil
+}
+
+// SetUserQuota updates a user's max stored data points (0 = unlimited).
+func SetUserQuota(name string, max int64) error {
+	usersMutex.Lock()
+	defer usersMutex.Unlock()
+
+	user, exists := users[name]
+	if !exists {
+		return errors.New("user not found")
+	}
+	user.MaxPoints = max
+	users[name] = user
+	saveUsers()
+	return nil
 }
 
 func ResetUserToken(name string) (string, error) {

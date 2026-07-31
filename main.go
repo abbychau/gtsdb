@@ -8,6 +8,7 @@ import (
 	"gtsdb/buffer"
 	"gtsdb/fanout"
 	"gtsdb/handlers"
+	"gtsdb/quota"
 	"gtsdb/utils"
 	"net"
 	"net/http"
@@ -51,6 +52,11 @@ func run(configFile string) {
 	// Start background compaction (checks every hour, compacts files > 100MB)
 	compactStop := startBackgroundCompaction(1*time.Hour, 100*1024*1024)
 
+	// Start per-user storage quota reconciler (O(1) write checks, exact counts
+	// refreshed every 5 minutes off the hot path).
+	quotaStop := make(chan struct{})
+	quota.StartReconciler(5*time.Minute, quotaStop)
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
@@ -59,6 +65,7 @@ func run(configFile string) {
 	close(tcpStop)
 	close(httpStop)
 	close(compactStop)
+	close(quotaStop)
 	gracefulShutdown()
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bufio"
+	"fmt"
 	"gtsdb/auth"
 	"gtsdb/buffer"
 	"gtsdb/fanout"
@@ -116,7 +117,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				writeTCPResponse(conn, Response{Success: false, Message: "Unauthorized"})
 				continue
 			}
-			newUser, err := auth.CreateUser(op.Key)
+			newUser, err := auth.CreateUserWithQuota(op.Key, op.MaxPoints)
 			if err != nil {
 				writeTCPResponse(conn, Response{Success: false, Message: err.Error()})
 				continue
@@ -136,6 +137,24 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 				continue
 			}
 			writeTCPResponse(conn, Response{Success: true, Data: map[string]string{"token": token}})
+			continue
+		}
+
+		if op.Operation == "setquota" {
+			if currentUser.Name != "root" {
+				writeTCPResponse(conn, Response{Success: false, Message: "Unauthorized"})
+				continue
+			}
+			if op.Key == "" {
+				writeTCPResponse(conn, Response{Success: false, Message: "Username required"})
+				continue
+			}
+			if err := auth.SetUserQuota(op.Key, op.MaxPoints); err != nil {
+				writeTCPResponse(conn, Response{Success: false, Message: err.Error()})
+				continue
+			}
+			writeTCPResponse(conn, Response{Success: true, Message: fmt.Sprintf("Quota set for %s: %d points", op.Key, op.MaxPoints)})
+			continue
 		}
 
 		// Prefix keys
@@ -205,7 +224,13 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			continue
 		}
 
+		if msg := quotaCheckBeforeWrite(currentUser.Name, op); msg != "" {
+			writeTCPResponse(conn, Response{Success: false, Message: msg})
+			continue
+		}
+
 		response := HandleOperation(op)
+		quotaAccountAfterWrite(currentUser.Name, op, response.Success)
 
 		// if operation is write, broadcast to all consumers
 		if op.Operation == "write" && response.Success {
