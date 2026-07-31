@@ -10,3 +10,6 @@
 [submodule "drivers"]
 	path = drivers
 	url = https://github.com/abbychau/gtsdb-drivers.git
+[submodule "cloud"]
+	path = cloud
+	url = https://github.com/abbychau/gtsdb-cloud.git
