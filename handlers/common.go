@@ -264,7 +264,7 @@ func HandleOperation(op Operation) Response {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 		data := map[string]interface{}{
-			"version":         "1.0",
+			"version":         utils.Version,
 			"key_count":       len(buffer.GetAllIds()),
 			"health":          "ok",
 			"uptime_seconds":  int(time.Since(serverStartTime).Seconds()),

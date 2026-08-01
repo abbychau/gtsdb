@@ -100,7 +100,7 @@ func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":   "ok",
 			"service":  "gtsdb",
-			"version":  "1.0",
+			"version":  utils.Version,
 			"keyCount": len(buffer.GetAllIds()),
 		})
 	})
