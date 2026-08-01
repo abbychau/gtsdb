@@ -48,12 +48,11 @@ func authenticateRequest(r *http.Request) (auth.User, error) {
 	return user, nil
 }
 
+// A user may only access their OWN folder ("<user>/"). root sees "root/".
+// Non-root tenants can NOT see the shared root/ folder — each instance only
+// sees the data written to its own namespace.
 func allowedPrefixesForUser(userName string) []string {
-	selfPrefix := userName + "/"
-	if userName == "root" {
-		return []string{selfPrefix}
-	}
-	return []string{selfPrefix, "root/"}
+	return []string{userName + "/"}
 }
 
 func normalizeKeyForAccess(key string) string {
