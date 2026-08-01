@@ -244,7 +244,7 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		switch op.Operation {
 		case "ids":
 			if ids, ok := response.Data.([]string); ok {
-				var filtered []string
+				filtered := []string{}
 				for _, id := range ids {
 					if strings.HasPrefix(id, prefix) {
 						filtered = append(filtered, strings.TrimPrefix(id, prefix))
@@ -254,7 +254,18 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 			}
 		case "idswithcount":
 			if keyCounts, ok := response.Data.([]models.KeyCount); ok {
-				var filtered []models.KeyCount
+				filtered := []models.KeyCount{}
+				for _, kc := range keyCounts {
+					if strings.HasPrefix(kc.Key, prefix) {
+						kc.Key = strings.TrimPrefix(kc.Key, prefix)
+						filtered = append(filtered, kc)
+					}
+				}
+				response.Data = filtered
+			}
+		case "idswithcount-own":
+			if keyCounts, ok := response.Data.([]models.KeyCount); ok {
+				filtered := []models.KeyCount{}
 				for _, kc := range keyCounts {
 					if strings.HasPrefix(kc.Key, prefix) {
 						kc.Key = strings.TrimPrefix(kc.Key, prefix)

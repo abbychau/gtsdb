@@ -164,12 +164,13 @@ func validateKey(key string) bool {
 
 // actions that no need key
 var noKeyActions = map[string]bool{
-	"serverinfo":   true,
-	"ids":          true,
-	"flush":        true,
-	"idswithcount": true,
-	"multi-read":   true,
-	"batch-write":  true,
+	"serverinfo":       true,
+	"ids":              true,
+	"flush":            true,
+	"idswithcount":     true,
+	"idswithcount-own": true,
+	"multi-read":       true,
+	"batch-write":      true,
 }
 
 // quotaWriteOps are the operations that grow a user's stored data points.
@@ -494,6 +495,8 @@ func HandleOperation(op Operation) Response {
 	case "ids":
 		return Response{Success: true, Data: buffer.GetAllIds()}
 	case "idswithcount":
+		return Response{Success: true, Data: buffer.GetAllIdsWithCount()}
+	case "idswithcount-own":
 		return Response{Success: true, Data: buffer.GetAllIdsWithCount()}
 	case "flush":
 		buffer.FlushRemainingDataPoints()
