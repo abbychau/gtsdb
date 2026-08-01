@@ -293,10 +293,17 @@ go_cpu_count %d
 				response.Data = filtered
 			}
 		case "idswithcount":
+			// Count only the user's OWN namespace (keys prefixed "<user>/"),
+			// matching the TCP handler and the quota reconciler. Shared root/
+			// keys are excluded from a tenant's stored-points count so per-
+			// instance usage reflects what the tenant actually wrote. Keys are
+			// normalized (\ -> /) exactly like isAllowedKeyForUser so legacy
+			// backslash-separated keys are matched correctly.
 			if keyCounts, ok := response.Data.([]models.KeyCount); ok {
 				var filtered []models.KeyCount
+				selfPrefix := user.Name + "/"
 				for _, kc := range keyCounts {
-					if isAllowedKeyForUser(kc.Key, user.Name) {
+					if strings.HasPrefix(normalizeKeyForAccess(kc.Key), selfPrefix) {
 						kc.Key = stripAllowedPrefixForUser(kc.Key, user.Name)
 						filtered = append(filtered, kc)
 					}
