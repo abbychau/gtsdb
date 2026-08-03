@@ -84,9 +84,23 @@ func TestGracefulShutdown(t *testing.T) {
 	}
 }
 
+// freePort reserves a free TCP port and releases it, returning "host:port".
+// Preferred over hard-coded ports, which collide when tests run in parallel
+// or when the port is already taken on the machine.
+func freePort(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return addr
+}
+
 func TestTCPServerInitialization(t *testing.T) {
-	utils.TcpListenAddr = "localhost:55555"
-	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
+	utils.TcpListenAddr = freePort(t)
+	fanoutManager := fanout.NewFanout()
 	stop := make(chan struct{})
 
 	// Start TCP server in goroutine
@@ -117,7 +131,7 @@ func TestTCPServerInitialization(t *testing.T) {
 
 func TestTCPServerWithInvalidAddress(t *testing.T) {
 	utils.TcpListenAddr = "invalid:address:format"
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	stop := make(chan struct{})
 
 	// Start TCP server with invalid address
@@ -128,8 +142,8 @@ func TestTCPServerWithInvalidAddress(t *testing.T) {
 }
 
 func TestHTTPServerInitialization(t *testing.T) {
-	utils.HttpListenAddr = "localhost:55556"
-	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for testing
+	utils.HttpListenAddr = freePort(t)
+	fanoutManager := fanout.NewFanout()
 	stop := make(chan struct{})
 
 	// Start HTTP server in goroutine
@@ -160,7 +174,7 @@ func TestHTTPServerInitialization(t *testing.T) {
 
 func TestHTTPServerWithInvalidAddress(t *testing.T) {
 	utils.HttpListenAddr = "invalid:address:format"
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	stop := make(chan struct{})
 
 	// Start HTTP server with invalid address

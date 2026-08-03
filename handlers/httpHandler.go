@@ -279,6 +279,17 @@ go_cpu_count %d
 		response := HandleOperation(op)
 		quotaAccountAfterWrite(user.Name, op, response.Success)
 
+		// Broadcast successful writes to SSE subscribers.
+		// HandleOperation resolves op.Write.Timestamp in place (defaults to now),
+		// so the timestamp is already set at this point.
+		if op.Operation == "write" && response.Success {
+			fanoutManager.Publish(models.DataPoint{
+				Key:       op.Key,
+				Timestamp: op.Write.Timestamp,
+				Value:     op.Write.Value,
+			})
+		}
+
 		// Filter response to folder-based visibility. Hide user/root folder prefix in response.
 		switch op.Operation {
 		case "ids":

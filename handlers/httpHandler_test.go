@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"gtsdb/fanout"
+	"gtsdb/models"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSetupHTTPRoutes(t *testing.T) {
-	fanoutManager := fanout.NewFanout(10) // Buffer size of 10 for handler tests
+	fanoutManager := fanout.NewFanout()
 	handler := SetupHTTPRoutes(fanoutManager)
 
 	tests := []struct {
@@ -103,7 +105,7 @@ func TestSetupHTTPRoutes(t *testing.T) {
 }
 
 func TestHealthEndpoint(t *testing.T) {
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	handler := SetupHTTPRoutes(fanoutManager)
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -132,7 +134,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestMetricsEndpoint(t *testing.T) {
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	handler := SetupHTTPRoutes(fanoutManager)
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -163,8 +165,53 @@ func containsMetric(body, metric string) bool {
 	return strings.Contains(body, metric)
 }
 
+func TestHTTPWritePublishesToFanout(t *testing.T) {
+	fanoutManager := fanout.NewFanout()
+	handler := SetupHTTPRoutes(fanoutManager)
+	token := testToken()
+
+	received := make(chan models.DataPoint, 1)
+	fanoutManager.AddConsumer(999, func(dp models.DataPoint) {
+		received <- dp
+	})
+
+	body, _ := json.Marshal(Operation{
+		Operation: "write",
+		Key:       "fanout_test",
+		Write:     &WriteRequest{Value: 7.5, Timestamp: 2000000000},
+	})
+	req := httptest.NewRequest("POST", "/", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	var resp Response
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success {
+		t.Fatalf("write failed: %s", resp.Message)
+	}
+
+	// HTTP writes must be broadcast to SSE subscribers via the fanout
+	select {
+	case dp := <-received:
+		if dp.Key != "root/fanout_test" {
+			t.Errorf("expected key root/fanout_test, got %s", dp.Key)
+		}
+		if dp.Timestamp != 2000000000 {
+			t.Errorf("expected timestamp 2000000000, got %d", dp.Timestamp)
+		}
+		if dp.Value != 7.5 {
+			t.Errorf("expected value 7.5, got %f", dp.Value)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for fanout publish")
+	}
+}
+
 func TestHTTPMoreOperations(t *testing.T) {
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	handler := SetupHTTPRoutes(fanoutManager)
 	token := testToken()
 
@@ -279,7 +326,7 @@ func TestHTTPMoreOperations(t *testing.T) {
 }
 
 func TestHTTPUserManagement(t *testing.T) {
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	handler := SetupHTTPRoutes(fanoutManager)
 	token := testToken()
 
@@ -316,7 +363,7 @@ func TestHTTPUserManagement(t *testing.T) {
 }
 
 func TestHTTPMoreReadOps(t *testing.T) {
-	fanoutManager := fanout.NewFanout(10)
+	fanoutManager := fanout.NewFanout()
 	handler := SetupHTTPRoutes(fanoutManager)
 	token := testToken()
 

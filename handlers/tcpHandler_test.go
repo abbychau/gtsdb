@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"gtsdb/fanout"
+	"gtsdb/models"
 	"io"
 	"net"
 	"strings"
@@ -69,10 +70,14 @@ func newMockConn(input string) *mockConn {
 }
 
 func TestHandleTcpConnection(t *testing.T) {
+	// shared capture for publish assertions (each subtest runs sequentially)
+	var published models.DataPoint
+
 	tests := []struct {
 		name     string
 		input    string
 		wantErr  bool
+		before   func(*fanout.Fanout)
 		validate func(*testing.T, *fanout.Fanout)
 	}{
 		{
@@ -160,6 +165,43 @@ func TestHandleTcpConnection(t *testing.T) {
 			input: `{"operation":"auth","key":"` + testToken() + `"}
 {"operation":"write","key":"tcp_ts","write":{"value":99.9,"timestamp":2000000000}}
 `,
+			before: func(f *fanout.Fanout) {
+				published = models.DataPoint{}
+				f.AddConsumer(4242, func(dp models.DataPoint) {
+					published = dp
+				})
+			},
+			validate: func(t *testing.T, f *fanout.Fanout) {
+				if published.Key != "root/tcp_ts" {
+					t.Errorf("expected published key root/tcp_ts, got %s", published.Key)
+				}
+				if published.Timestamp != 2000000000 {
+					t.Errorf("expected published timestamp 2000000000, got %d", published.Timestamp)
+				}
+				if published.Value != 99.9 {
+					t.Errorf("expected published value 99.9, got %f", published.Value)
+				}
+			},
+		},
+		{
+			name: "write without timestamp publishes resolved timestamp",
+			input: `{"operation":"auth","key":"` + testToken() + `"}
+{"operation":"write","key":"tcp_pub_ts","write":{"value":1.0}}
+`,
+			before: func(f *fanout.Fanout) {
+				published = models.DataPoint{}
+				f.AddConsumer(4243, func(dp models.DataPoint) {
+					published = dp
+				})
+			},
+			validate: func(t *testing.T, f *fanout.Fanout) {
+				if published.Timestamp == 0 {
+					t.Error("expected resolved non-zero timestamp in published point")
+				}
+				if published.Key != "root/tcp_pub_ts" || published.Value != 1.0 {
+					t.Errorf("unexpected published point: %+v", published)
+				}
+			},
 		},
 		{
 			name: "read lastx",
@@ -228,7 +270,10 @@ func TestHandleTcpConnection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			conn := newMockConn(tt.input)
-			fanoutManager := fanout.NewFanout(10)
+			fanoutManager := fanout.NewFanout()
+			if tt.before != nil {
+				tt.before(fanoutManager)
+			}
 
 			done := make(chan struct{})
 			go func() {

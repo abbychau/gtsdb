@@ -235,8 +235,9 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 		// if operation is write, broadcast to all consumers
 		if op.Operation == "write" && response.Success {
 			fanoutManager.Publish(models.DataPoint{
-				Key:   op.Key,
-				Value: op.Write.Value,
+				Key:       op.Key,
+				Timestamp: op.Write.Timestamp,
+				Value:     op.Write.Value,
 			})
 		}
 

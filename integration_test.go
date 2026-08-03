@@ -73,7 +73,7 @@ func integrationSetup(t *testing.T) {
 		integrationRootTok = utils.RootToken
 
 		// Start a real HTTP server via httptest
-		fm := fanout.NewFanout(100)
+		fm := fanout.NewFanout()
 		handler := handlers.SetupHTTPRoutes(fm)
 		integrationServer = httptest.NewServer(handler)
 		integrationBaseURL = integrationServer.URL
@@ -597,7 +597,7 @@ func TestIntegration_TCPFlow(t *testing.T) {
 
 	// Instead of spinning up a real TCP server (which requires running main),
 	// test the TCP handler directly via a pipe.
-	fm := fanout.NewFanout(10)
+	fm := fanout.NewFanout()
 
 	server, client := net.Pipe()
 	defer server.Close()
@@ -735,7 +735,7 @@ func TestIntegration_WriteStress(t *testing.T) {
 func TestIntegration_HTTPHandlerDirect(t *testing.T) {
 	integrationSetup(t)
 
-	fm := fanout.NewFanout(10)
+	fm := fanout.NewFanout()
 	handler := handlers.SetupHTTPRoutes(fm)
 	srv := httptest.NewServer(handler)
 	defer srv.Close()

@@ -15,7 +15,7 @@ type Fanout struct {
 	consumers concurrent.Set[*Consumer]
 }
 
-func NewFanout(_ int) *Fanout {
+func NewFanout() *Fanout {
 	return &Fanout{
 		consumers: *concurrent.NewSet[*Consumer](),
 	}

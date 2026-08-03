@@ -80,7 +80,7 @@ type Response struct {
 // For multi-read, builds JSON directly without reflection.
 func (r Response) MarshalJSON() ([]byte, error) {
 	if r.MultiData == nil {
-		// Non-multi-read: use sonic (type alias breaks recursion)
+		// Non-multi-read: use velox-io/json (type alias breaks recursion)
 		type respAlias Response
 		return json.Marshal(respAlias(r))
 	}

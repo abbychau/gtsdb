@@ -40,7 +40,7 @@ func run(configFile string) {
 	utils.InitDataDirectory()
 	migrateData()
 	auth.Init(utils.DataDir)
-	fanoutManager := fanout.NewFanout(100000) // Buffer size of 1000 for production use
+	fanoutManager := fanout.NewFanout()
 
 	// Create stop channels
 	tcpStop := make(chan struct{})

@@ -8,7 +8,7 @@ import (
 )
 
 func TestBasicFanout(t *testing.T) {
-	fanout := NewFanout(1)
+	fanout := NewFanout()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -43,7 +43,7 @@ func TestBasicFanout(t *testing.T) {
 }
 
 func TestConsumerRemoval(t *testing.T) {
-	fanout := NewFanout(1)
+	fanout := NewFanout()
 
 	var callCount int
 	var mu sync.Mutex
@@ -70,7 +70,7 @@ func TestConsumerRemoval(t *testing.T) {
 }
 
 func TestConcurrentPublish(t *testing.T) {
-	fanout := NewFanout(1)
+	fanout := NewFanout()
 
 	messageCount := 100
 	consumerCount := 3
@@ -108,7 +108,7 @@ func TestConcurrentPublish(t *testing.T) {
 }
 
 func TestGetConsumers(t *testing.T) {
-	fanout := NewFanout(1)
+	fanout := NewFanout()
 
 	// Add three consumers
 	consumers := []int{1, 2, 3}
@@ -142,21 +142,8 @@ func TestGetConsumers(t *testing.T) {
 	}
 }
 
-func TestNewFanoutInvalidBuffer(t *testing.T) {
-	// Buffer size parameter is now ignored, just verify initialization doesn't panic
-	fanout := NewFanout(0)
-	if fanout == nil {
-		t.Error("Expected non-nil fanout with buffer 0")
-	}
-
-	fanout = NewFanout(-1)
-	if fanout == nil {
-		t.Error("Expected non-nil fanout with buffer -1")
-	}
-}
-
 func TestGetConsumer(t *testing.T) {
-	fanout := NewFanout(1)
+	fanout := NewFanout()
 
 	// Test getting non-existent consumer
 	if consumer := fanout.GetConsumer(1); consumer != nil {
@@ -193,7 +180,7 @@ func TestGetConsumer(t *testing.T) {
 }
 
 func TestConcurrentConsumerModification(t *testing.T) {
-	fanout := NewFanout(1)
+	fanout := NewFanout()
 
 	// Add initial consumers
 	for i := 1; i <= 5; i++ {
