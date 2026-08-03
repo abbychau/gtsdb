@@ -416,7 +416,7 @@ func TestPrepareFileHandlesCreatesDir(t *testing.T) {
 	defer func() { utils.DataDir = originalDataDir }()
 
 	ref, ok := acquireFileHandle("newdir/test.aof", dataFileHandles)
-	if !ok || ref == nil {
+	if !ok {
 		t.Error("Expected file handle to be created in new subdirectory")
 		return
 	}

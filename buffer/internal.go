@@ -135,9 +135,8 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	defer dataRef.release()
 	dataFile := dataRef.file
 
-	indexRef, _ := acquireFileHandle(dataPointId+".idx", indexFileHandles)
 	var indexFile *os.File
-	if indexRef != nil {
+	if indexRef, ok := acquireFileHandle(dataPointId+".idx", indexFileHandles); ok {
 		defer indexRef.release()
 		indexFile = indexRef.file
 	}
