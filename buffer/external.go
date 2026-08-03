@@ -51,12 +51,8 @@ func InitKey(dataPointId string) {
 	if dataPointId == "" {
 		return
 	}
-	if ref, ok := acquireFileHandle(dataPointId+".aof", dataFileHandles); ok {
-		ref.release()
-	}
-	if ref, ok := acquireFileHandle(dataPointId+".idx", indexFileHandles); ok {
-		ref.release()
-	}
+	primeFileHandle(dataPointId+".aof", dataFileHandles)
+	primeFileHandle(dataPointId+".idx", indexFileHandles)
 	allIds.Add(dataPointId)
 }
 func RenameKey(dataPointId, newId string) {
@@ -118,12 +114,8 @@ func RenameKey(dataPointId, newId string) {
 	}
 
 	// Open new file handles so the LRU is primed and counts stay consistent
-	if ref, ok := acquireFileHandle(newDfk, dataFileHandles); ok {
-		ref.release()
-	}
-	if ref, ok := acquireFileHandle(newIfk, indexFileHandles); ok {
-		ref.release()
-	}
+	primeFileHandle(newDfk, dataFileHandles)
+	primeFileHandle(newIfk, indexFileHandles)
 
 	// Add new ID
 	allIds.Add(newId)
@@ -202,13 +194,9 @@ func ReloadKey(dataPointId string) bool {
 		return false
 	}
 
-	if ref, ok := acquireFileHandle(dfk, dataFileHandles); ok {
-		ref.release()
-	}
+	primeFileHandle(dfk, dataFileHandles)
 	if _, err := os.Stat(utils.DataDir + "/" + ifk); err == nil {
-		if ref, ok := acquireFileHandle(ifk, indexFileHandles); ok {
-			ref.release()
-		}
+		primeFileHandle(ifk, indexFileHandles)
 	}
 	allIds.Add(dataPointId)
 
@@ -664,12 +652,8 @@ func CompactKey(key string) error {
 	}
 
 	// Re-open file handles and update caches
-	if ref, ok := acquireFileHandle(key+".aof", dataFileHandles); ok {
-		ref.release()
-	}
-	if ref, ok := acquireFileHandle(key+".idx", indexFileHandles); ok {
-		ref.release()
-	}
+	primeFileHandle(key+".aof", dataFileHandles)
+	primeFileHandle(key+".idx", indexFileHandles)
 
 	// Write Gorilla-compressed version if enabled
 	if utils.CompactionCompression {

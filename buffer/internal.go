@@ -268,6 +268,15 @@ func refFromLRU(l *concurrent.LRU[string, *refFile], key string) (*refFile, bool
 	return l.GetRef(key, (*refFile).acquire)
 }
 
+// primeFileHandle opens a file into the LRU cache without keeping a
+// reference. Used to warm the cache (e.g. after rename/reload/compact); the
+// acquire/release pairing is contained here, so callers cannot leak.
+func primeFileHandle(fileName string, handleMap *concurrent.LRU[string, *refFile]) {
+	if ref, ok := acquireFileHandle(fileName, handleMap); ok {
+		ref.release()
+	}
+}
+
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
 	ref, ok := acquireFileHandle(id+".aof", dataFileHandles)
 	if !ok {
