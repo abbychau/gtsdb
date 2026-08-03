@@ -3,6 +3,8 @@ GenerateTest:
 	go tool cover -html docs/coverage -o docs/coverage.html
 	go run docs/coverage_badge.go docs/coverage
 	start .\docs\coverage.html
+submodules:
+	git submodule update --init --recursive
 coverage:
 	go test ./... -skip=TestMain -coverprofile=docs/coverage -p 1
 	go tool cover -html docs/coverage -o docs/coverage.html
