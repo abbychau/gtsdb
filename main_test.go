@@ -14,24 +14,27 @@ import (
 )
 
 // Test helpers
-func createTestIniFile(t *testing.T) string {
-	content := `[listens]
+// createTestIniFile writes a config file pointing at a fresh temp data dir
+// and returns the ini path plus the data dir it references.
+func createTestIniFile(t *testing.T) (string, string) {
+	dataDir := t.TempDir()
+	content := fmt.Sprintf(`[listens]
 tcp = localhost:5555
 http = localhost:5556
 [paths]
-data = ./testdata`
+data = %s`, dataDir)
 
 	tmpDir := t.TempDir()
 	iniPath := filepath.Join(tmpDir, "test.ini")
 	if err := os.WriteFile(iniPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	return iniPath
+	return iniPath, dataDir
 }
 
 func TestLoadConfig(t *testing.T) {
 	// Test with valid config
-	iniPath := createTestIniFile(t)
+	iniPath, dataDir := createTestIniFile(t)
 	loadConfig(iniPath)
 
 	if utils.TcpListenAddr != "localhost:5555" {
@@ -40,8 +43,8 @@ func TestLoadConfig(t *testing.T) {
 	if utils.HttpListenAddr != "localhost:5556" {
 		t.Errorf("Expected HTTP address localhost:5556, got %s", utils.HttpListenAddr)
 	}
-	if utils.DataDir != "./testdata" {
-		t.Errorf("Expected data dir ./testdata, got %s", utils.DataDir)
+	if utils.DataDir != dataDir {
+		t.Errorf("Expected data dir %s, got %s", dataDir, utils.DataDir)
 	}
 }
 
@@ -196,7 +199,7 @@ func TestMainArgs(t *testing.T) {
 tcp = "localhost:0"
 http = "localhost:0"
 [paths]
-data = "./testdata"`
+data = "` + tmpDir + `"`
 
 	if err := os.WriteFile(customConfig, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -258,7 +261,7 @@ data = "./testdata"`
 
 func TestMainIntegration(t *testing.T) {
 	// Create temporary config file
-	configPath := createTestIniFile(t)
+	configPath, _ := createTestIniFile(t)
 
 	// Run main with custom config in background
 	done := make(chan bool)

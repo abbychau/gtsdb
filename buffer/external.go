@@ -19,6 +19,10 @@ import (
 )
 
 func InitIDSet() {
+	// Rebuild the set from disk: clear stale entries from previous
+	// initializations (e.g. when the data dir changes between runs).
+	allIds.Clear()
+
 	// Read all the files in the data directory recursively
 	err := filepath.WalkDir(utils.DataDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
