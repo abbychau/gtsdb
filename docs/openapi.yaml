@@ -54,6 +54,7 @@ paths:
                 - $ref: '#/components/schemas/ServerInfoOperation'
                 - $ref: '#/components/schemas/AddUserOperation'
                 - $ref: '#/components/schemas/ResetKeyOperation'
+                - $ref: '#/components/schemas/SetQuotaOperation'
             examples:
               write:
                 summary: Write a data point
@@ -94,6 +95,12 @@ paths:
                       timestamp: 1717965210
                     - key: sensor2
                       value: 100.0
+              set_quota:
+                summary: Set a user's storage quota
+                value:
+                  operation: setquota
+                  key: alice
+                  max_points: 1000000
       responses:
         "200":
           description: Operation result
@@ -526,6 +533,23 @@ components:
         key:
           type: string
           description: Username to reset token for
+      required:
+        - operation
+        - key
+
+    SetQuotaOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [setquota]
+        key:
+          type: string
+          description: Username to set the storage quota for
+        max_points:
+          type: integer
+          format: int64
+          description: Maximum stored data points (0 = unlimited)
       required:
         - operation
         - key

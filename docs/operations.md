@@ -36,6 +36,7 @@ GTSDB supports the following operations via both HTTP (POST /) and TCP protocols
 |-----------|:---:|-------------|
 | `adduser` | ✓ (root) | Create a new user with a generated token |
 | `resetkey` | ✓ (root) | Reset a user's authentication token |
+| `setquota` | ✓ (root) | Set a user's max stored data points (0 = unlimited) |
 
 ## Data Flow
 
