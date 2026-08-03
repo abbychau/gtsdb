@@ -195,10 +195,10 @@ tcp = :5555
 http = :5556
 
 [paths]
-data_directory = data
+data = data
 
 [buffer]
-buffer_size = 700
+file_handle_lru_capacity = 700
 compaction_compression = true
 ```
 
@@ -214,7 +214,7 @@ go test -benchmem -run=^$ -bench ^BenchmarkMain$ -benchtime=5s
 
 ```
 cpu: 13th Gen Intel(R) Core(TM) i7-13700KF
-BenchmarkMain-24    26396    135241 ns/op    4249 B/op    5 allocs/op
+BenchmarkMain-24    102796    67504 ns/op    4249 B/op    5 allocs/op
 ```
 
 This benchmark runs 50% read and 50% write operations to 100 different keys over a single TCP connection.
@@ -227,12 +227,12 @@ make Benchmark
 
 | Operation | Performance |
 |-----------|------------|
-| Sequential Store | 477 ns/op |
-| Sequential Load | 209 ns/op |
-| Concurrent Store | 256 ns/op |
-| Concurrent Load | 216 ns/op |
-| Concurrent Mixed | 427 ns/op |
-| Set Contains | 12.4 ns/op |
+| Sequential Store | 563 ns/op |
+| Sequential Load | 412 ns/op |
+| Concurrent Store | 47.3 ns/op |
+| Concurrent Load | 45.7 ns/op |
+| Concurrent Mixed | 179 ns/op |
+| Set Contains | 11.6 ns/op |
 
 ### Full Comparison
 

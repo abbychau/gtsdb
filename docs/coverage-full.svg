@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="498">
+  <rect width="750" height="498" fill="#fafafa"/>
+  <text x="12" y="30" font-family="Verdana,DejaVu Sans,sans-serif" font-size="16" font-weight="bold" fill="#333">Coverage: 83.8% (1526/1822 statements)</text>
+  <text x="12" y="63" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">auth/auth.go</text>
+  <rect x="240" y="50" width="341" height="22" rx="3" fill="#97ca00"/>
+  <rect x="581" y="50" width="49" height="22" rx="3" fill="#97ca00" opacity="0.15"/>
+  <text x="638" y="63" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">87.6% (78/89)</text>
+  <text x="12" y="91" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">buffer/external.go</text>
+  <rect x="240" y="78" width="329" height="22" rx="3" fill="#97ca00"/>
+  <rect x="569" y="78" width="61" height="22" rx="3" fill="#97ca00" opacity="0.15"/>
+  <text x="638" y="91" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">84.4% (324/384)</text>
+  <text x="12" y="119" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">buffer/gorilla.go</text>
+  <rect x="240" y="106" width="372" height="22" rx="3" fill="#44cc11"/>
+  <rect x="612" y="106" width="18" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="119" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">95.5% (149/156)</text>
+  <text x="12" y="147" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">buffer/gorilla_io.go</text>
+  <rect x="240" y="134" width="331" height="22" rx="3" fill="#97ca00"/>
+  <rect x="571" y="134" width="59" height="22" rx="3" fill="#97ca00" opacity="0.15"/>
+  <text x="638" y="147" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">84.9% (79/93)</text>
+  <text x="12" y="175" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">buffer/internal.go</text>
+  <rect x="240" y="162" width="334" height="22" rx="3" fill="#97ca00"/>
+  <rect x="574" y="162" width="56" height="22" rx="3" fill="#97ca00" opacity="0.15"/>
+  <text x="638" y="175" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">85.8% (229/267)</text>
+  <text x="12" y="203" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">concurrent/lru.go</text>
+  <rect x="240" y="190" width="380" height="22" rx="3" fill="#44cc11"/>
+  <rect x="620" y="190" width="10" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="203" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">97.6% (81/83)</text>
+  <text x="12" y="231" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">concurrent/map.go</text>
+  <rect x="240" y="218" width="390" height="22" rx="3" fill="#44cc11"/>
+  <rect x="630" y="218" width="0" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="231" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">100.0% (20/20)</text>
+  <text x="12" y="259" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">concurrent/set.go</text>
+  <rect x="240" y="246" width="390" height="22" rx="3" fill="#44cc11"/>
+  <rect x="630" y="246" width="0" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="259" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">100.0% (46/46)</text>
+  <text x="12" y="287" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">fanout/fanout.go</text>
+  <rect x="240" y="274" width="390" height="22" rx="3" fill="#44cc11"/>
+  <rect x="630" y="274" width="0" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="287" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">100.0% (15/15)</text>
+  <text x="12" y="315" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">handlers/common.go</text>
+  <rect x="240" y="302" width="323" height="22" rx="3" fill="#97ca00"/>
+  <rect x="563" y="302" width="67" height="22" rx="3" fill="#97ca00" opacity="0.15"/>
+  <text x="638" y="315" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">83.0% (166/200)</text>
+  <text x="12" y="343" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">handlers/httpHandler.go</text>
+  <rect x="240" y="330" width="265" height="22" rx="3" fill="#dfb317"/>
+  <rect x="505" y="330" width="125" height="22" rx="3" fill="#dfb317" opacity="0.15"/>
+  <text x="638" y="343" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">68.2% (107/157)</text>
+  <text x="12" y="371" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">handlers/tcpHandler.go</text>
+  <rect x="240" y="358" width="301" height="22" rx="3" fill="#a4a61d"/>
+  <rect x="541" y="358" width="89" height="22" rx="3" fill="#a4a61d" opacity="0.15"/>
+  <text x="638" y="371" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">77.4% (106/137)</text>
+  <text x="12" y="399" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">main.go</text>
+  <rect x="240" y="386" width="242" height="22" rx="3" fill="#dfb317"/>
+  <rect x="482" y="386" width="148" height="22" rx="3" fill="#dfb317" opacity="0.15"/>
+  <text x="638" y="399" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">62.1% (77/124)</text>
+  <text x="12" y="427" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">synchronous/ringbuffer.go</text>
+  <rect x="240" y="414" width="390" height="22" rx="3" fill="#44cc11"/>
+  <rect x="630" y="414" width="0" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="427" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">100.0% (26/26)</text>
+  <text x="12" y="455" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" fill="#444">utils/utils.go</text>
+  <rect x="240" y="442" width="358" height="22" rx="3" fill="#44cc11"/>
+  <rect x="598" y="442" width="32" height="22" rx="3" fill="#44cc11" opacity="0.15"/>
+  <text x="638" y="455" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" fill="#555">92.0% (23/25)</text>
+</svg>

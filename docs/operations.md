@@ -41,14 +41,14 @@ GTSDB supports the following operations via both HTTP (POST /) and TCP protocols
 
 ### Write Path
 ```
-Client → HTTP/TCP → Handler (validation) → StoreDataPointBuffer → 
-  prepareFileHandles → writeBinary to .aof → updateIndex → dataFile.Sync()
+Client → HTTP/TCP → Handler (validation) → StoreDataPointBuffer →
+  acquireFileHandle → write to .aof → updateIndex → dataFile.Sync()
 ```
 
 ### Read Path
 ```
 Client → HTTP/TCP → Handler → ReadDataPoints/ReadLastDataPoints →
-  [Ring Buffer (if enabled)] → [Index seek] → [Binary read from .aof] →
+  [Ring Buffer (if enabled)] → [findStartOffset via .idx] → [ReadAt from .aof] →
   [Downsampling] → Response
 ```
 
@@ -71,8 +71,18 @@ Client → HTTP/TCP → Handler → PatchDataPoints →
 ### .idx files (Sparse Index)
 - Created every **5000 records** (configurable via `indexInterval` constant)
 - Binary format: int64 timestamp + int64 byte offset
-- Enables O(log n) seeks for time-range queries
+- Enables O(log n) seeks for time-range queries (scan from the last index entry ≤ start time)
 - Rebuilt on compaction
+
+### .aof.gor files (Gorilla Compressed WAL)
+- Created when `compaction_compression = true` during compaction
+- Blocks of 5000 points compressed with the Gorilla algorithm
+- Reads prefer the compressed file and fall back to `.aof` if unavailable
+
+### .aof.gor.idx files (Compressed WAL Index)
+- Companion index for `.aof.gor` (one entry per compressed block)
+- Binary format: int64 timestamp + int64 byte offset into `.aof.gor`
+- Separated from `.idx` because offsets point into the compressed file, not `.aof`
 
 ## Caching
 

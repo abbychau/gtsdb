@@ -21,7 +21,7 @@ tcp = 127.0.0.1:5555
 ; "sync"  = fsync after every write batch (safe but slower)
 ; sync_mode = async
 
-; Sync interval in milliseconds for async mode (default: 500)
+; Sync interval in milliseconds for async mode (default: 1000)
 ; Lower = less data loss on crash, higher = better throughput
 ; sync_interval_ms = 1000
 
