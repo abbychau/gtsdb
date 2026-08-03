@@ -606,6 +606,39 @@ func TestGetAllIdsWithCount(t *testing.T) {
 	}
 }
 
+// TestGetAllIdsWithCountAfterEviction verifies that counts stay accurate even
+// when a key's file handle has been evicted from the LRU cache. The quota
+// reconciler and idswithcount rely on this.
+func TestGetAllIdsWithCountAfterEviction(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	id := "test_evicted_count"
+	const points = 42
+	for i := 0; i < points; i++ {
+		StoreDataPointBuffer(models.DataPoint{
+			Key:       id,
+			Timestamp: time.Now().Unix() + int64(i),
+			Value:     float64(i),
+		})
+	}
+
+	// Evict the handle from the LRU (simulates a key that hasn't been
+	// touched in a while on a busy server).
+	dataFileHandles.Delete(id + ".aof")
+
+	keyCounts := GetAllIdsWithCount()
+	for _, kc := range keyCounts {
+		if kc.Key == id {
+			if kc.Count != points {
+				t.Errorf("Expected count %d after eviction, got %d", points, kc.Count)
+			}
+			return
+		}
+	}
+	t.Errorf("Key %s not found in results", id)
+}
+
 func TestGetDataFileSize(t *testing.T) {
 	cleanup()
 	defer cleanup()

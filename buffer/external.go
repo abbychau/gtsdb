@@ -549,11 +549,22 @@ func GetAllIdsWithCount() []models.KeyCount {
 
 	var keyCount = []models.KeyCount{}
 	for _, key := range keys {
-		if size, ok := GetDataFileSize(key + ".aof"); ok {
-			keyCount = append(keyCount, models.KeyCount{Key: key, Count: int(size / 16)})
-		} else {
+		// Open the file (if needed) and stat it, so keys whose handles were
+		// evicted from the LRU still report their real count. This feeds the
+		// quota reconciler and idswithcount, which must be accurate regardless
+		// of LRU state.
+		ref, ok := acquireFileHandle(key+".aof", dataFileHandles)
+		if !ok {
 			keyCount = append(keyCount, models.KeyCount{Key: key, Count: 0})
+			continue
 		}
+		fileStat, err := ref.file.Stat()
+		ref.release()
+		if err != nil {
+			keyCount = append(keyCount, models.KeyCount{Key: key, Count: 0})
+			continue
+		}
+		keyCount = append(keyCount, models.KeyCount{Key: key, Count: int(fileStat.Size() / 16)})
 	}
 
 	return keyCount
