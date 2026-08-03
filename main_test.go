@@ -107,7 +107,7 @@ func TestTCPServerInitialization(t *testing.T) {
 	stop := make(chan struct{})
 
 	// Start TCP server in goroutine
-	go startTCPServerWithStop(fanoutManager, stop)
+	go startTCPServerWithStop(utils.TcpListenAddr, utils.NoAuthUser, fanoutManager, stop)
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -138,7 +138,7 @@ func TestTCPServerWithInvalidAddress(t *testing.T) {
 	stop := make(chan struct{})
 
 	// Start TCP server with invalid address
-	startTCPServerWithStop(fanoutManager, stop)
+	startTCPServerWithStop(utils.TcpListenAddr, utils.NoAuthUser, fanoutManager, stop)
 
 	// Should return without panic
 	close(stop)
@@ -150,7 +150,7 @@ func TestHTTPServerInitialization(t *testing.T) {
 	stop := make(chan struct{})
 
 	// Start HTTP server in goroutine
-	go startHTTPServerWithStop(fanoutManager, stop)
+	go startHTTPServerWithStop(utils.HttpListenAddr, utils.NoAuthUser, fanoutManager, stop)
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -181,7 +181,7 @@ func TestHTTPServerWithInvalidAddress(t *testing.T) {
 	stop := make(chan struct{})
 
 	// Start HTTP server with invalid address
-	startHTTPServerWithStop(fanoutManager, stop)
+	startHTTPServerWithStop(utils.HttpListenAddr, utils.NoAuthUser, fanoutManager, stop)
 
 	// Should return without panic
 	close(stop)

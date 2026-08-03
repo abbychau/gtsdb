@@ -40,7 +40,7 @@ func connWriteJSON(conn net.Conn, v interface{}) error {
 	return err
 }
 
-func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
+func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout, noAuthUser string) {
 	defer conn.Close()
 	id := rand.Intn(1000) + int(time.Now().UnixNano())
 	scanner := bufio.NewScanner(conn)
@@ -48,8 +48,8 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	subscribingDevices := []string{}
 
 	var currentUser auth.User
-	if utils.NoAuthUser != "" {
-		if u, ok := auth.GetUser(utils.NoAuthUser); ok {
+	if noAuthUser != "" {
+		if u, ok := auth.GetUser(noAuthUser); ok {
 			currentUser = u
 		}
 	}

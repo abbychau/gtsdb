@@ -74,7 +74,7 @@ func integrationSetup(t *testing.T) {
 
 		// Start a real HTTP server via httptest
 		fm := fanout.NewFanout()
-		handler := handlers.SetupHTTPRoutes(fm)
+		handler := handlers.SetupHTTPRoutes(fm, "")
 		integrationServer = httptest.NewServer(handler)
 		integrationBaseURL = integrationServer.URL
 	})
@@ -603,7 +603,7 @@ func TestIntegration_TCPFlow(t *testing.T) {
 	defer server.Close()
 	defer client.Close()
 
-	go handlers.HandleTcpConnection(server, fm)
+	go handlers.HandleTcpConnection(server, fm, "")
 
 	// Auth
 	r := tcpSend(t, client, map[string]interface{}{
@@ -736,7 +736,7 @@ func TestIntegration_HTTPHandlerDirect(t *testing.T) {
 	integrationSetup(t)
 
 	fm := fanout.NewFanout()
-	handler := handlers.SetupHTTPRoutes(fm)
+	handler := handlers.SetupHTTPRoutes(fm, "")
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 

@@ -25,11 +25,11 @@ func writeJSON(w http.ResponseWriter, response Response) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-func authenticateRequest(r *http.Request) (auth.User, error) {
+func authenticateRequest(r *http.Request, noAuthUser string) (auth.User, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		if utils.NoAuthUser != "" {
-			if u, ok := auth.GetUser(utils.NoAuthUser); ok {
+		if noAuthUser != "" {
+			if u, ok := auth.GetUser(noAuthUser); ok {
 				return u, nil
 			}
 		}
@@ -91,7 +91,7 @@ func isAllowedKeyForUser(key string, userName string) bool {
 	return false
 }
 
-func SetupHTTPRoutes(fanoutManager *fanout.Fanout) http.Handler {
+func SetupHTTPRoutes(fanoutManager *fanout.Fanout, noAuthUser string) http.Handler {
 	mux := http.NewServeMux()
 
 	// Health check endpoint (no auth required)
@@ -155,7 +155,7 @@ go_cpu_count %d
 	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		user, err := authenticateRequest(r)
+		user, err := authenticateRequest(r, noAuthUser)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return

@@ -10,7 +10,6 @@ import (
 var (
 	flushTicker   *time.Ticker
 	flushStop     chan struct{}
-	flushOnce     sync.Once
 	flusherActive bool
 	flusherMu     sync.Mutex
 )
@@ -29,13 +28,19 @@ func StartAsyncFlusher(interval time.Duration) {
 	flushStop = make(chan struct{})
 	flushTicker = time.NewTicker(interval)
 
+	// Capture locals so the goroutine never reads the mutable globals: a
+	// second StartAsyncFlusher (e.g. loadConfig being called again) can
+	// reassign them without racing the running goroutine.
+	ticker := flushTicker
+	stop := flushStop
+
 	go func() {
 		for {
 			select {
-			case <-flushTicker.C:
+			case <-ticker.C:
 				doFlush()
-			case <-flushStop:
-				flushTicker.Stop()
+			case <-stop:
+				ticker.Stop()
 				doFlush() // final flush on stop
 				return
 			}
@@ -54,10 +59,10 @@ func StopAsyncFlusher() {
 		return
 	}
 
-	flushOnce.Do(func() {
-		close(flushStop)
-		flusherActive = false
-	})
+	// Guarded by flusherMu + flusherActive, so flushStop can never be
+	// closed twice (no sync.Once needed; it also allows restart cycles).
+	close(flushStop)
+	flusherActive = false
 }
 
 // doFlush syncs all open file handles.

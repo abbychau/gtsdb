@@ -46,8 +46,8 @@ func run(configFile string) {
 	tcpStop := make(chan struct{})
 	httpStop := make(chan struct{})
 
-	go startTCPServerWithStop(fanoutManager, tcpStop)
-	go startHTTPServerWithStop(fanoutManager, httpStop)
+	go startTCPServerWithStop(utils.TcpListenAddr, utils.NoAuthUser, fanoutManager, tcpStop)
+	go startHTTPServerWithStop(utils.HttpListenAddr, utils.NoAuthUser, fanoutManager, httpStop)
 
 	// Start background compaction (checks every hour, compacts files > 100MB)
 	compactStop := startBackgroundCompaction(1*time.Hour, 100*1024*1024)
@@ -69,8 +69,11 @@ func run(configFile string) {
 	gracefulShutdown()
 }
 
-func startTCPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
-	listener, err := net.Listen("tcp", utils.TcpListenAddr)
+// startTCPServerWithStop starts the TCP server. addr and noAuthUser are
+// captured at call time so the goroutine never reads the mutable config
+// globals (which tests may reassign between runs).
+func startTCPServerWithStop(addr string, noAuthUser string, fanoutManager *fanout.Fanout, stop chan struct{}) {
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		utils.Errorln("Error listening:", err)
 		return
@@ -96,14 +99,14 @@ func startTCPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
 				continue
 			}
 		}
-		go handlers.HandleTcpConnection(conn, fanoutManager)
+		go handlers.HandleTcpConnection(conn, fanoutManager, noAuthUser)
 	}
 }
 
-func startHTTPServerWithStop(fanoutManager *fanout.Fanout, stop chan struct{}) {
+func startHTTPServerWithStop(addr string, noAuthUser string, fanoutManager *fanout.Fanout, stop chan struct{}) {
 	srv := &http.Server{
-		Addr:    utils.HttpListenAddr,
-		Handler: handlers.SetupHTTPRoutes(fanoutManager),
+		Addr:    addr,
+		Handler: handlers.SetupHTTPRoutes(fanoutManager, noAuthUser),
 	}
 
 	go func() {

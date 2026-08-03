@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -72,6 +73,7 @@ func newMockConn(input string) *mockConn {
 func TestHandleTcpConnection(t *testing.T) {
 	// shared capture for publish assertions (each subtest runs sequentially)
 	var published models.DataPoint
+	var pubMu sync.Mutex // guards published: written by the handler goroutine's callback
 
 	tests := []struct {
 		name     string
@@ -166,12 +168,18 @@ func TestHandleTcpConnection(t *testing.T) {
 {"operation":"write","key":"tcp_ts","write":{"value":99.9,"timestamp":2000000000}}
 `,
 			before: func(f *fanout.Fanout) {
+				pubMu.Lock()
 				published = models.DataPoint{}
+				pubMu.Unlock()
 				f.AddConsumer(4242, func(dp models.DataPoint) {
+					pubMu.Lock()
 					published = dp
+					pubMu.Unlock()
 				})
 			},
 			validate: func(t *testing.T, f *fanout.Fanout) {
+				pubMu.Lock()
+				defer pubMu.Unlock()
 				if published.Key != "root/tcp_ts" {
 					t.Errorf("expected published key root/tcp_ts, got %s", published.Key)
 				}
@@ -189,12 +197,18 @@ func TestHandleTcpConnection(t *testing.T) {
 {"operation":"write","key":"tcp_pub_ts","write":{"value":1.0}}
 `,
 			before: func(f *fanout.Fanout) {
+				pubMu.Lock()
 				published = models.DataPoint{}
+				pubMu.Unlock()
 				f.AddConsumer(4243, func(dp models.DataPoint) {
+					pubMu.Lock()
 					published = dp
+					pubMu.Unlock()
 				})
 			},
 			validate: func(t *testing.T, f *fanout.Fanout) {
+				pubMu.Lock()
+				defer pubMu.Unlock()
 				if published.Timestamp == 0 {
 					t.Error("expected resolved non-zero timestamp in published point")
 				}
@@ -277,7 +291,7 @@ func TestHandleTcpConnection(t *testing.T) {
 
 			done := make(chan struct{})
 			go func() {
-				HandleTcpConnection(conn, fanoutManager)
+				HandleTcpConnection(conn, fanoutManager, "")
 				close(done)
 			}()
 

@@ -14,7 +14,7 @@ import (
 
 func TestSetupHTTPRoutes(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 
 	tests := []struct {
 		name           string
@@ -106,7 +106,7 @@ func TestSetupHTTPRoutes(t *testing.T) {
 
 func TestHealthEndpoint(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 
 	req := httptest.NewRequest("GET", "/health", nil)
 	rr := httptest.NewRecorder()
@@ -135,7 +135,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 func TestMetricsEndpoint(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rr := httptest.NewRecorder()
@@ -167,7 +167,7 @@ func containsMetric(body, metric string) bool {
 
 func TestHTTPWritePublishesToFanout(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 	token := testToken()
 
 	received := make(chan models.DataPoint, 1)
@@ -212,7 +212,7 @@ func TestHTTPWritePublishesToFanout(t *testing.T) {
 
 func TestHTTPMoreOperations(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 	token := testToken()
 
 	doPost := func(op Operation) *httptest.ResponseRecorder {
@@ -327,7 +327,7 @@ func TestHTTPMoreOperations(t *testing.T) {
 
 func TestHTTPUserManagement(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 	token := testToken()
 
 	doPost := func(op Operation) *httptest.ResponseRecorder {
@@ -364,7 +364,7 @@ func TestHTTPUserManagement(t *testing.T) {
 
 func TestHTTPMoreReadOps(t *testing.T) {
 	fanoutManager := fanout.NewFanout()
-	handler := SetupHTTPRoutes(fanoutManager)
+	handler := SetupHTTPRoutes(fanoutManager, "")
 	token := testToken()
 
 	doPost := func(op Operation) *httptest.ResponseRecorder {
