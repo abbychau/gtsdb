@@ -84,8 +84,21 @@ func (r *refFile) acquire() {
 
 // release decrements the reference count and closes the file if an eviction
 // or shutdown requested a close while the file was still in use.
+//
+// Every acquire must be paired with exactly one release (typically via
+// defer immediately after the acquire). A release without a matching
+// acquire drives the counter negative; that is a programming error and is
+// logged loudly instead of silently corrupting the refcount.
 func (r *refFile) release() {
-	if r.refs.Add(-1) == 0 && r.pendingClose.Load() {
+	if r.refs.Add(-1) < 0 {
+		name := "?"
+		if r.file != nil {
+			name = r.file.Name()
+		}
+		utils.Error("refFile.release without matching acquire: %s", name)
+		return
+	}
+	if r.refs.Load() == 0 && r.pendingClose.Load() {
 		r.closeNow()
 	}
 }
@@ -207,6 +220,11 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 // if necessary. Callers must release() the handle when done.
 // The reference count is incremented while holding the LRU lock so eviction
 // cannot close a file that is about to be used.
+//
+// CONTRACT: every successful acquire (ok == true) must be paired with exactly
+// one release(), typically `defer ref.release()` placed immediately after the
+// acquire so early returns cannot leak. A forgotten release keeps the file
+// open forever (fd leak; on Windows the file also cannot be renamed/deleted).
 func acquireFileHandle(fileName string, handleMap *concurrent.LRU[string, *refFile]) (*refFile, bool) {
 	return handleMap.GetOrCreateRef(fileName, func() (*refFile, bool) {
 		fullPath := utils.DataDir + "/" + fileName

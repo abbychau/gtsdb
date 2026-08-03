@@ -281,3 +281,58 @@ func TestRefFileCloseWhenIdle(t *testing.T) {
 	// Remove B from the LRU so its file closes before t.TempDir cleanup (Windows)
 	dataFileHandles.Delete("b.aof")
 }
+
+// TestFileHandleRefsBalanced exercises the main operation paths and verifies
+// that every acquire is paired with a release: after all operations, every
+// refFile in both LRUs must have refs == 0. A forgotten release would leave a
+// positive count here (and the file permanently open).
+func TestFileHandleRefsBalanced(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	const key = "ref_balance"
+	now := time.Now().Unix()
+	for i := 0; i < 100; i++ {
+		StoreDataPointBuffer(models.DataPoint{Key: key, Timestamp: now + int64(i), Value: float64(i)})
+	}
+	ReadLastDataPoints(key, 10)
+	ReadDataPoints(key, now, now+50, 0, "")
+	GetAllIdsWithCount()
+	GetDataFileSize(key + ".aof")
+	SyncAllHandles()
+	FlushRemainingDataPoints()
+	if err := CompactKey(key); err != nil {
+		t.Fatalf("CompactKey failed: %v", err)
+	}
+	ReadLastDataPoints(key, 1)
+	ReadDataPoints(key, now, now+100, 0, "")
+
+	check := func(name string, l *concurrent.LRU[string, *refFile]) {
+		l.Range(func(_ string, ref *refFile) bool {
+			if ref.refs.Load() != 0 {
+				t.Errorf("%s: refs=%d for %s after operations (leaked acquire?)", name, ref.refs.Load(), ref.file.Name())
+			}
+			return true
+		})
+	}
+	check("dataFileHandles", dataFileHandles)
+	check("indexFileHandles", indexFileHandles)
+}
+
+// TestRefFileDoubleRelease verifies that releasing more times than acquired
+// is detected (refcount goes negative and is logged) instead of silently
+// closing or corrupting the refcount.
+func TestRefFileDoubleRelease(t *testing.T) {
+	ref := &refFile{file: nil}
+
+	ref.acquire() // refs = 1
+	ref.release() // refs = 0
+	ref.release() // refs = -1 → must be detected, no panic, no close
+
+	if ref.refs.Load() != -1 {
+		t.Errorf("expected refs=-1 after double release, got %d", ref.refs.Load())
+	}
+	if ref.closed.Load() {
+		t.Error("double release must not close the file")
+	}
+}
