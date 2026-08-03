@@ -418,9 +418,9 @@ func TestPrepareFileHandlesCreatesDir(t *testing.T) {
 	ref, ok := acquireFileHandle("newdir/test.aof", dataFileHandles)
 	if !ok || ref == nil {
 		t.Error("Expected file handle to be created in new subdirectory")
-	} else {
-		ref.release()
+		return
 	}
+	defer ref.release()
 
 	// Remove from the LRU so the file closes before t.TempDir cleanup (Windows)
 	dataFileHandles.Delete("newdir/test.aof")

@@ -273,7 +273,7 @@ func refFromLRU(l *concurrent.LRU[string, *refFile], key string) (*refFile, bool
 // acquire/release pairing is contained here, so callers cannot leak.
 func primeFileHandle(fileName string, handleMap *concurrent.LRU[string, *refFile]) {
 	if ref, ok := acquireFileHandle(fileName, handleMap); ok {
-		ref.release()
+		defer ref.release()
 	}
 }
 

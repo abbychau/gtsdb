@@ -169,10 +169,10 @@ func ReloadKey(dataPointId string) bool {
 	ifk := dataPointId + ".idx"
 
 	if ref, ok := refFromLRU(dataFileHandles, dfk); ok {
-		ref.release()
+		defer ref.release()
 	}
 	if ref, ok := refFromLRU(indexFileHandles, ifk); ok {
-		ref.release()
+		defer ref.release()
 	}
 	dataFileHandles.Delete(dfk)
 	indexFileHandles.Delete(ifk)
@@ -536,27 +536,29 @@ func GetTotalDataPoints() int64 {
 	return totalDataPoints.Load()
 }
 
+// fileKeyCount returns the number of 16-byte records in a key's data file,
+// opening the file if needed so evicted handles still report real counts.
+// Extracted so the acquire/release pairing uses defer without accumulating
+// deferred releases inside the caller's loop.
+func fileKeyCount(key string) int {
+	ref, ok := acquireFileHandle(key+".aof", dataFileHandles)
+	if !ok {
+		return 0
+	}
+	defer ref.release()
+	fileStat, err := ref.file.Stat()
+	if err != nil {
+		return 0
+	}
+	return int(fileStat.Size() / 16)
+}
+
 func GetAllIdsWithCount() []models.KeyCount {
 	keys := allIds.Items()
 
 	var keyCount = []models.KeyCount{}
 	for _, key := range keys {
-		// Open the file (if needed) and stat it, so keys whose handles were
-		// evicted from the LRU still report their real count. This feeds the
-		// quota reconciler and idswithcount, which must be accurate regardless
-		// of LRU state.
-		ref, ok := acquireFileHandle(key+".aof", dataFileHandles)
-		if !ok {
-			keyCount = append(keyCount, models.KeyCount{Key: key, Count: 0})
-			continue
-		}
-		fileStat, err := ref.file.Stat()
-		ref.release()
-		if err != nil {
-			keyCount = append(keyCount, models.KeyCount{Key: key, Count: 0})
-			continue
-		}
-		keyCount = append(keyCount, models.KeyCount{Key: key, Count: int(fileStat.Size() / 16)})
+		keyCount = append(keyCount, models.KeyCount{Key: key, Count: fileKeyCount(key)})
 	}
 
 	return keyCount

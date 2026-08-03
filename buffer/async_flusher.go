@@ -1,6 +1,7 @@
 package buffer
 
 import (
+	"gtsdb/concurrent"
 	"gtsdb/utils"
 	"sync"
 	"time"
@@ -64,6 +65,18 @@ func doFlush() {
 	SyncAllHandles()
 }
 
+// syncHandle syncs a single handle if it is present in the LRU. Extracted so
+// the acquire/release pairing uses defer (guaranteed on all paths) without
+// accumulating deferred releases inside the caller's loop.
+func syncHandle(l *concurrent.LRU[string, *refFile], key string) {
+	if ref, ok := refFromLRU(l, key); ok {
+		defer ref.release()
+		if err := ref.file.Sync(); err != nil {
+			utils.Error("async-flusher: error syncing file %s: %v", key, err)
+		}
+	}
+}
+
 // SyncAllHandles performs a one-time sync of only file handles that have pending writes.
 func SyncAllHandles() {
 	if dirtyKeys.Size() == 0 {
@@ -75,17 +88,7 @@ func SyncAllHandles() {
 	dirtyKeys.Clear()
 
 	for _, key := range keys {
-		if ref, ok := refFromLRU(dataFileHandles, key+".aof"); ok {
-			if err := ref.file.Sync(); err != nil {
-				utils.Error("async-flusher: error syncing data file %s: %v", key, err)
-			}
-			ref.release()
-		}
-		if ref, ok := refFromLRU(indexFileHandles, key+".idx"); ok {
-			if err := ref.file.Sync(); err != nil {
-				utils.Error("async-flusher: error syncing index file %s: %v", key, err)
-			}
-			ref.release()
-		}
+		syncHandle(dataFileHandles, key+".aof")
+		syncHandle(indexFileHandles, key+".idx")
 	}
 }

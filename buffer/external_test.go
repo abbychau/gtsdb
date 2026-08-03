@@ -883,7 +883,7 @@ func TestReadFiledDataPointsWithoutIndex(t *testing.T) {
 
 	// Close and delete index handle from cache so it re-opens
 	if ref, ok := refFromLRU(indexFileHandles, key+".idx"); ok {
-		ref.release()
+		defer ref.release()
 	}
 	indexFileHandles.Delete(key + ".idx")
 
