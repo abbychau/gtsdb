@@ -11,6 +11,9 @@ type RingBuffer[T any] struct {
 }
 
 func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
+	if capacity < 1 {
+		capacity = 1 // avoid modulo-by-zero panics in Push
+	}
 	return &RingBuffer[T]{
 		buffer: make([]T, capacity),
 		size:   0,
