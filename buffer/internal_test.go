@@ -415,12 +415,15 @@ func TestPrepareFileHandlesCreatesDir(t *testing.T) {
 	utils.DataDir = tmpDir
 	defer func() { utils.DataDir = originalDataDir }()
 
-	fh := prepareFileHandles("newdir/test.aof", dataFileHandles)
-	if fh == nil {
+	ref, ok := acquireFileHandle("newdir/test.aof", dataFileHandles)
+	if !ok || ref == nil {
 		t.Error("Expected file handle to be created in new subdirectory")
 	} else {
-		fh.Close()
+		ref.release()
 	}
+
+	// Remove from the LRU so the file closes before t.TempDir cleanup (Windows)
+	dataFileHandles.Delete("newdir/test.aof")
 }
 
 func TestPatchDataPointsEmptyKey(t *testing.T) {
@@ -722,10 +725,10 @@ func TestInitFileHandles(t *testing.T) {
 		defer tmpFile.Close()
 
 		// Store file in LRU
-		dataFileHandles.Put("test", tmpFile)
+		dataFileHandles.Put("test", &refFile{file: tmpFile})
 
 		// Retrieve and verify
-		if retrievedFile, found := dataFileHandles.Get("test"); !found || retrievedFile != tmpFile {
+		if retrievedFile, found := dataFileHandles.Get("test"); !found || retrievedFile.file != tmpFile {
 			t.Error("expected to retrieve the same file from LRU")
 		}
 
@@ -751,7 +754,7 @@ func TestInitFileHandles(t *testing.T) {
 			defer os.Remove(tmpFile.Name())
 			defer tmpFile.Close()
 
-			dataFileHandles.Put(tmpFile.Name(), tmpFile)
+			dataFileHandles.Put(tmpFile.Name(), &refFile{file: tmpFile})
 		}
 
 		// Should not exceed capacity due to LRU eviction
@@ -786,8 +789,8 @@ func TestInitFileHandles(t *testing.T) {
 		defer os.Remove(file3.Name())
 
 		// Add files to LRU
-		dataFileHandles.Put("file1", file1)
-		dataFileHandles.Put("file2", file2)
+		dataFileHandles.Put("file1", &refFile{file: file1})
+		dataFileHandles.Put("file2", &refFile{file: file2})
 
 		// Verify files are not closed yet
 		if file1.Name() == "" || file2.Name() == "" {
@@ -795,7 +798,7 @@ func TestInitFileHandles(t *testing.T) {
 		}
 
 		// Add third file, should trigger eviction of file1
-		dataFileHandles.Put("file3", file3)
+		dataFileHandles.Put("file3", &refFile{file: file3})
 
 		// Should have exactly 2 files in cache
 		if dataFileHandles.Len() != 2 {
@@ -838,7 +841,7 @@ func TestInitFileHandles(t *testing.T) {
 		defer tmpFile.Close()
 
 		// This should evict the nil file without panicking
-		dataFileHandles.Put("real_file", tmpFile)
+		dataFileHandles.Put("real_file", &refFile{file: tmpFile})
 
 		// Verify the real file is in cache
 		if _, found := dataFileHandles.Get("real_file"); !found {

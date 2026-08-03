@@ -1,8 +1,8 @@
 package buffer
 
 import (
-	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"gtsdb/concurrent"
 	"gtsdb/models"
@@ -67,16 +67,66 @@ func readIndexEntry(reader io.Reader, timestamp *int64, offset *int64) error {
 	return nil
 }
 
+// refFile wraps an *os.File with reference counting so the LRU can close a
+// file only when no operation is currently using it.
+type refFile struct {
+	file         *os.File
+	refs         atomic.Int32
+	pendingClose atomic.Bool
+	closed       atomic.Bool
+}
+
+// acquire increments the reference count. Only called under the LRU lock,
+// so it never races with closeIfIdle.
+func (r *refFile) acquire() {
+	r.refs.Add(1)
+}
+
+// release decrements the reference count and closes the file if an eviction
+// or shutdown requested a close while the file was still in use.
+func (r *refFile) release() {
+	if r.refs.Add(-1) == 0 && r.pendingClose.Load() {
+		r.closeNow()
+	}
+}
+
+// closeIfIdle closes the file immediately if no references are held,
+// otherwise defers the close until the last reference is released.
+// Only called under the LRU lock, so the refcount cannot change concurrently.
+func (r *refFile) closeIfIdle() {
+	if r.refs.Load() == 0 {
+		r.closeNow()
+	} else {
+		r.pendingClose.Store(true)
+	}
+}
+
+func (r *refFile) closeNow() {
+	if r.closed.CompareAndSwap(false, true) {
+		if err := r.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			utils.Error("Error closing file handle: %v", err)
+		}
+	}
+}
+
 func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	lock, _ := fileWriteLocks.LoadOrStore(dataPointId, &sync.Mutex{})
 	lock.Lock()
 	defer lock.Unlock()
 
-	dataFile := prepareFileHandles(dataPointId+".aof", dataFileHandles)
-	indexFile := prepareFileHandles(dataPointId+".idx", indexFileHandles)
-	if dataFile == nil {
+	dataRef, ok := acquireFileHandle(dataPointId+".aof", dataFileHandles)
+	if !ok {
 		utils.Error("Cannot open data file for %s, skipping write", dataPointId)
 		return
+	}
+	defer dataRef.release()
+	dataFile := dataRef.file
+
+	indexRef, _ := acquireFileHandle(dataPointId+".idx", indexFileHandles)
+	var indexFile *os.File
+	if indexRef != nil {
+		defer indexRef.release()
+		indexFile = indexRef.file
 	}
 
 	// Fast path: batch-write all points using a pre-allocated buffer.
@@ -151,49 +201,60 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 	}
 }
 
-func prepareFileHandles(fileName string, handleMap *concurrent.LRU[string, *os.File]) *os.File {
-	if file, ok := handleMap.Get(fileName); ok {
-		return file
-	}
-
-	fullPath := utils.DataDir + "/" + fileName
-	dir := filepath.Dir(fullPath)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			utils.Error("Error creating directory %s: %v", dir, err)
-			return nil
-		}
-	}
-
-	file, err := os.OpenFile(fullPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		utils.Error("Error opening file %s: %v", fullPath, err)
-		return nil
-	}
-	handleMap.Put(fileName, file)
-
-	if strings.HasSuffix(fileName, ".aof") {
-		if _, ok := idToCountMap.Load(fileName[:len(fileName)-4]); !ok {
-			fileInfo, err := file.Stat()
-			if err != nil {
-				utils.Error("Error getting file info for %s: %v", fullPath, err)
-				return file
+// acquireFileHandle returns a reference-counted handle for fileName, opening it
+// if necessary. Callers must release() the handle when done.
+// The reference count is incremented while holding the LRU lock so eviction
+// cannot close a file that is about to be used.
+func acquireFileHandle(fileName string, handleMap *concurrent.LRU[string, *refFile]) (*refFile, bool) {
+	return handleMap.GetOrCreateRef(fileName, func() (*refFile, bool) {
+		fullPath := utils.DataDir + "/" + fileName
+		dir := filepath.Dir(fullPath)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				utils.Error("Error creating directory %s: %v", dir, err)
+				return nil, false
 			}
-			fileLength := fileInfo.Size()
-			count := &atomic.Int64{}
-			count.Store(fileLength / 16)
-			idToCountMap.Store(fileName[:len(fileName)-4], count)
-			totalDataPoints.Add(fileLength / 16)
 		}
-	}
-	return file
+
+		file, err := os.OpenFile(fullPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			utils.Error("Error opening file %s: %v", fullPath, err)
+			return nil, false
+		}
+
+		ref := &refFile{file: file}
+
+		if strings.HasSuffix(fileName, ".aof") {
+			key := fileName[:len(fileName)-4]
+			if _, ok := idToCountMap.Load(key); !ok {
+				fileInfo, err := file.Stat()
+				if err != nil {
+					utils.Error("Error getting file info for %s: %v", fullPath, err)
+					return ref, true
+				}
+				fileLength := fileInfo.Size()
+				count := &atomic.Int64{}
+				count.Store(fileLength / 16)
+				idToCountMap.Store(key, count)
+				totalDataPoints.Add(fileLength / 16)
+			}
+		}
+		return ref, true
+	}, (*refFile).acquire)
+}
+
+// refFromLRU acquires a reference to an existing LRU entry without creating it.
+func refFromLRU(l *concurrent.LRU[string, *refFile], key string) (*refFile, bool) {
+	return l.GetRef(key, (*refFile).acquire)
 }
 
 func readLastFiledDataPoints(id string, count int) ([]models.DataPoint, error) {
-	file := prepareFileHandles(id+".aof", dataFileHandles)
-	if file == nil {
+	ref, ok := acquireFileHandle(id+".aof", dataFileHandles)
+	if !ok {
 		return nil, nil
 	}
+	defer ref.release()
+	file := ref.file
 
 	// Use atomic counter for O(1) size instead of file.Stat() syscall.
 	actualRecordCount := int64(0)
@@ -238,81 +299,97 @@ func updateIndexFile(indexFile *os.File, timestamp int64, offset int64) error {
 	return writeIndexEntry(indexFile, timestamp, offset)
 }
 
-func readFiledDataPoints(id string, startTime int64, endTime int64) []models.DataPoint {
-	file := prepareFileHandles(id+".aof", dataFileHandles)
-	if file == nil {
-		return nil
+// findStartOffset scans the index file for the last entry whose timestamp is
+// <= target and returns the data-file offset where scanning should begin.
+// A missing or empty index means the scan must start at offset 0.
+func findStartOffset(id string, target int64) int64 {
+	indexRef, ok := acquireFileHandle(id+".idx", indexFileHandles)
+	if !ok {
+		return 0
 	}
-	var dataPoints []models.DataPoint
-	reader := bufio.NewReaderSize(file, 64*1024)
+	defer indexRef.release()
 
-	indexFilename := id + ".idx"
-	indexFileInterface, ok := indexFileHandles.Get(indexFilename)
-	if ok {
-		indexFile := indexFileInterface
-		indexReader := bufio.NewReaderSize(indexFile, 64*1024)
-		offset := int64(0)
-
-		_, err := indexFile.Seek(0, io.SeekStart)
-		if err != nil {
-			utils.Error("Error seeking index file: %v", err)
-			return nil
-		}
-
-		for {
-			var timestamp int64
-			var fileOffset int64
-			err := readIndexEntry(indexReader, &timestamp, &fileOffset)
-			if err != nil {
-				if err == io.EOF || err == io.ErrUnexpectedEOF {
-					break
-				}
-				utils.Error("Error reading index file: %v", err)
-				return nil
-			}
-
-			if timestamp > startTime {
-				break
-			}
-			offset = fileOffset
-		}
-
-		_, err = file.Seek(offset, io.SeekStart)
-		if err != nil {
-			utils.Error("Error seeking data file: %v", err)
-			return nil
-		}
-	} else {
-		_, err := file.Seek(0, io.SeekStart)
-		if err != nil {
-			utils.Error("Error seeking data file: %v", err)
-			return nil
-		}
+	fileInfo, err := indexRef.file.Stat()
+	if err != nil {
+		return 0
+	}
+	size := fileInfo.Size()
+	if size == 0 {
+		return 0
 	}
 
-	for {
-		var timestamp int64
-		var value float64
-		err := readRecord(reader, &timestamp, &value)
-		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				break
-			}
-			utils.Error("Error reading file: %v", err)
-			return nil
-		}
+	buf := make([]byte, size)
+	if _, err := indexRef.file.ReadAt(buf, 0); err != nil && err != io.EOF {
+		utils.Error("Error reading index file for %s: %v", id, err)
+		return 0
+	}
 
-		if timestamp > endTime {
+	offset := int64(0)
+	for i := 0; i+16 <= len(buf); i += 16 {
+		ts := int64(binary.LittleEndian.Uint64(buf[i : i+8]))
+		if ts > target {
 			break
 		}
+		offset = int64(binary.LittleEndian.Uint64(buf[i+8 : i+16]))
+	}
+	return offset
+}
 
-		if timestamp >= startTime && timestamp <= endTime {
-			dataPoints = append(dataPoints, models.DataPoint{
-				Key:       id,
-				Timestamp: timestamp,
-				Value:     value,
-			})
+// readFiledDataPoints reads a timestamp range from the on-disk WAL using
+// ReadAt, which is safe for concurrent readers sharing a file handle.
+func readFiledDataPoints(id string, startTime int64, endTime int64) []models.DataPoint {
+	dataRef, ok := acquireFileHandle(id+".aof", dataFileHandles)
+	if !ok {
+		return nil
+	}
+	defer dataRef.release()
+
+	// O(1) size from the in-memory counter; 0 means the file is empty.
+	endOffset := int64(0)
+	if cv, ok := idToCountMap.Load(id); ok {
+		endOffset = cv.Load() * 16
+	}
+	if endOffset == 0 {
+		return nil
+	}
+
+	startOffset := findStartOffset(id, startTime)
+	if startOffset >= endOffset {
+		return nil
+	}
+
+	dataPoints := make([]models.DataPoint, 0, (endOffset-startOffset)/16)
+	buf := make([]byte, 64*1024)
+	pos := startOffset
+	for pos < endOffset {
+		toRead := int64(len(buf))
+		if endOffset-pos < toRead {
+			toRead = endOffset - pos
 		}
+		n, err := dataRef.file.ReadAt(buf[:toRead], pos)
+		if err != nil && err != io.EOF {
+			utils.Error("Error reading file %s: %v", id, err)
+			return nil
+		}
+
+		for i := 0; i+16 <= n; i += 16 {
+			ts := int64(binary.LittleEndian.Uint64(buf[i : i+8]))
+			if ts > endTime {
+				return dataPoints
+			}
+			if ts >= startTime {
+				val := math.Float64frombits(binary.LittleEndian.Uint64(buf[i+8 : i+16]))
+				dataPoints = append(dataPoints, models.DataPoint{
+					Key:       id,
+					Timestamp: ts,
+					Value:     val,
+				})
+			}
+		}
+		if int64(n) < toRead {
+			break
+		}
+		pos += int64(n)
 	}
 
 	return dataPoints
@@ -485,19 +562,54 @@ func computeAggregate(aggregation string, sum, count float64, min, max, first, l
 func InitFileHandles() {
 	capacity := utils.FileHandleLRUCapacity
 
-	dataFileHandles = concurrent.NewLRUWithEvict(capacity, func(_ string, f *os.File) {
-		if f != nil {
-			f.Close()
+	// Close handles from a previous initialization (e.g. tests re-initializing)
+	if dataFileHandles != nil {
+		dataFileHandles.Clear()
+	}
+	if indexFileHandles != nil {
+		indexFileHandles.Clear()
+	}
+
+	dataFileHandles = concurrent.NewLRUWithEvict(capacity, func(_ string, ref *refFile) {
+		if ref != nil {
+			ref.closeIfIdle()
 		}
 	})
 
-	indexFileHandles = concurrent.NewLRUWithEvict(capacity, func(_ string, f *os.File) {
-		if f != nil {
-			f.Close()
+	indexFileHandles = concurrent.NewLRUWithEvict(capacity, func(_ string, ref *refFile) {
+		if ref != nil {
+			ref.closeIfIdle()
 		}
 	})
 
 	utils.Logln("Handle LRU 容量：", capacity)
+}
+
+// CloseAllHandles closes all open file handles. Files still in use are closed
+// as soon as the last operation releases them. Used at shutdown.
+func CloseAllHandles() {
+	if dataFileHandles != nil {
+		dataFileHandles.Clear()
+	}
+	if indexFileHandles != nil {
+		indexFileHandles.Clear()
+	}
+}
+
+// GetDataFileSize returns the size of a data file if its handle is currently
+// open. The reference is acquired and released internally so callers never
+// hold a raw handle.
+func GetDataFileSize(fileName string) (int64, bool) {
+	ref, ok := refFromLRU(dataFileHandles, fileName)
+	if !ok {
+		return 0, false
+	}
+	defer ref.release()
+	stat, err := ref.file.Stat()
+	if err != nil {
+		return 0, false
+	}
+	return stat.Size(), true
 }
 
 // SetCacheSize configures the in-memory ring buffer size per key for fast reads.

@@ -29,14 +29,14 @@ func TestLRUFileHandleLimitWith2000Sensors(t *testing.T) {
 	}
 
 	// Initialize fresh state for test
-	dataFileHandles = concurrent.NewLRUWithEvict(utils.FileHandleLRUCapacity, func(_ string, f *os.File) {
+	dataFileHandles = concurrent.NewLRUWithEvict(utils.FileHandleLRUCapacity, func(_ string, f *refFile) {
 		if f != nil {
-			f.Close()
+			f.closeIfIdle()
 		}
 	})
-	indexFileHandles = concurrent.NewLRUWithEvict(utils.FileHandleLRUCapacity, func(_ string, f *os.File) {
+	indexFileHandles = concurrent.NewLRUWithEvict(utils.FileHandleLRUCapacity, func(_ string, f *refFile) {
 		if f != nil {
-			f.Close()
+			f.closeIfIdle()
 		}
 	})
 	allIds = concurrent.NewSet[string]()
@@ -185,13 +185,13 @@ func TestLRUEvictionCallback(t *testing.T) {
 	}
 
 	// Create a small LRU cache for testing eviction
-	evictedFiles := make([]*os.File, 0)
+	evictedFiles := make([]*refFile, 0)
 	testCapacity := 3
 
-	dataFileHandles = concurrent.NewLRUWithEvict(testCapacity, func(_ string, f *os.File) {
+	dataFileHandles = concurrent.NewLRUWithEvict(testCapacity, func(_ string, f *refFile) {
 		if f != nil {
 			evictedFiles = append(evictedFiles, f)
-			f.Close()
+			f.closeIfIdle()
 		}
 	})
 
@@ -230,4 +230,54 @@ func TestLRUEvictionCallback(t *testing.T) {
 	}
 
 	t.Logf("Successfully evicted %d files, cache size: %d", len(evictedFiles), currentSize)
+}
+
+// TestRefFileCloseWhenIdle verifies the reference-counting behavior: a file
+// evicted from the LRU while still in use stays open until the last reference
+// is released, then closes.
+func TestRefFileCloseWhenIdle(t *testing.T) {
+	originalDataDir := utils.DataDir
+	originalDataFileHandles := dataFileHandles
+
+	utils.DataDir = t.TempDir()
+
+	// Capacity 1 so opening b evicts a
+	dataFileHandles = concurrent.NewLRUWithEvict(1, func(_ string, f *refFile) {
+		if f != nil {
+			f.closeIfIdle()
+		}
+	})
+
+	defer func() {
+		utils.DataDir = originalDataDir
+		dataFileHandles = originalDataFileHandles
+	}()
+
+	refA, ok := acquireFileHandle("a.aof", dataFileHandles)
+	if !ok {
+		t.Fatal("failed to open a.aof")
+	}
+
+	refB, ok := acquireFileHandle("b.aof", dataFileHandles)
+	if !ok {
+		t.Fatal("failed to open b.aof")
+	}
+	defer refB.release()
+
+	// Opening b evicted a from the LRU, but a must stay usable while refA is held
+	if refA.closed.Load() {
+		t.Error("refA should not be closed while a reference is held")
+	}
+	if _, err := refA.file.Write([]byte("x")); err != nil {
+		t.Errorf("refA file should remain writable while held: %v", err)
+	}
+
+	// Release A: pendingClose was set at eviction, so it must close now
+	refA.release()
+	if !refA.closed.Load() {
+		t.Error("expected refA to close after release with pendingClose set")
+	}
+
+	// Remove B from the LRU so its file closes before t.TempDir cleanup (Windows)
+	dataFileHandles.Delete("b.aof")
 }

@@ -15,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	json "github.com/velox-io/json"
 )
 
 func InitIDSet() {
@@ -48,8 +46,12 @@ func InitKey(dataPointId string) {
 	if dataPointId == "" {
 		return
 	}
-	prepareFileHandles(dataPointId+".aof", dataFileHandles)
-	prepareFileHandles(dataPointId+".idx", indexFileHandles)
+	if ref, ok := acquireFileHandle(dataPointId+".aof", dataFileHandles); ok {
+		ref.release()
+	}
+	if ref, ok := acquireFileHandle(dataPointId+".idx", indexFileHandles); ok {
+		ref.release()
+	}
 	allIds.Add(dataPointId)
 }
 func RenameKey(dataPointId, newId string) {
@@ -65,15 +67,9 @@ func RenameKey(dataPointId, newId string) {
 	newDfk := newId + ".aof"
 	newIfk := newId + ".idx"
 
-	// Close and remove old file handles
-	if dfh, ok := dataFileHandles.Get(dfk); ok {
-		dfh.Close()
-		dataFileHandles.Delete(dfk)
-	}
-	if ifh, ok := indexFileHandles.Get(ifk); ok {
-		ifh.Close()
-		indexFileHandles.Delete(ifk)
-	}
+	// Close and remove old file handles (the eviction callback closes when idle)
+	dataFileHandles.Delete(dfk)
+	indexFileHandles.Delete(ifk)
 
 	// Remove from allIds before renaming
 	allIds.Remove(dataPointId)
@@ -116,9 +112,13 @@ func RenameKey(dataPointId, newId string) {
 		dataPatchLocks.Delete(dataPointId)
 	}
 
-	// Create new file handles
-	prepareFileHandles(newDfk, dataFileHandles)
-	prepareFileHandles(newIfk, indexFileHandles)
+	// Open new file handles so the LRU is primed and counts stay consistent
+	if ref, ok := acquireFileHandle(newDfk, dataFileHandles); ok {
+		ref.release()
+	}
+	if ref, ok := acquireFileHandle(newIfk, indexFileHandles); ok {
+		ref.release()
+	}
 
 	// Add new ID
 	allIds.Add(newId)
@@ -136,14 +136,7 @@ func DeleteKey(dataPointId string) {
 	dfk := dataPointId + ".aof"
 	ifk := dataPointId + ".idx"
 
-	// close file handles if they are open
-	if dfh, ok := dataFileHandles.Get(dfk); ok && dfh != nil {
-		dfh.Close()
-	}
-	if ifh, ok := indexFileHandles.Get(ifk); ok && ifh != nil {
-		ifh.Close()
-	}
-
+	// Close file handles if they are open (the eviction callback closes when idle)
 	dataFileHandles.Delete(dfk)
 	indexFileHandles.Delete(ifk)
 	idToRingBufferMap.Delete(dataPointId)
@@ -178,13 +171,12 @@ func ReloadKey(dataPointId string) bool {
 	dfk := dataPointId + ".aof"
 	ifk := dataPointId + ".idx"
 
-	if dfh, ok := dataFileHandles.Get(dfk); ok && dfh != nil {
-		dfh.Close()
+	if ref, ok := refFromLRU(dataFileHandles, dfk); ok {
+		ref.release()
 	}
-	if ifh, ok := indexFileHandles.Get(ifk); ok && ifh != nil {
-		ifh.Close()
+	if ref, ok := refFromLRU(indexFileHandles, ifk); ok {
+		ref.release()
 	}
-
 	dataFileHandles.Delete(dfk)
 	indexFileHandles.Delete(ifk)
 	idToRingBufferMap.Delete(dataPointId)
@@ -205,9 +197,13 @@ func ReloadKey(dataPointId string) bool {
 		return false
 	}
 
-	prepareFileHandles(dfk, dataFileHandles)
+	if ref, ok := acquireFileHandle(dfk, dataFileHandles); ok {
+		ref.release()
+	}
 	if _, err := os.Stat(utils.DataDir + "/" + ifk); err == nil {
-		prepareFileHandles(ifk, indexFileHandles)
+		if ref, ok := acquireFileHandle(ifk, indexFileHandles); ok {
+			ref.release()
+		}
 	}
 	allIds.Add(dataPointId)
 
@@ -385,26 +381,7 @@ func tryOverwriteSingleTimestampValue(key string, point models.DataPoint) bool {
 	}
 	defer dataFile.Close()
 
-	indexFile := prepareFileHandles(key+".idx", indexFileHandles)
-
-	startOffset := int64(0)
-	if indexFile != nil {
-		if _, err := indexFile.Seek(0, io.SeekStart); err == nil {
-			indexReader := bufio.NewReader(indexFile)
-			for {
-				var ts int64
-				var off int64
-				err := readIndexEntry(indexReader, &ts, &off)
-				if err != nil {
-					break
-				}
-				if ts > point.Timestamp {
-					break
-				}
-				startOffset = off
-			}
-		}
-	}
+	startOffset := findStartOffset(key, point.Timestamp)
 
 	if _, err := dataFile.Seek(startOffset, io.SeekStart); err != nil {
 		return false
@@ -548,37 +525,8 @@ func FlushRemainingDataPoints() {
 	SyncAllHandles()
 }
 
-func FormatDataPoints(dataPoints []models.DataPoint) string {
-	var response string
-
-	for i, dp := range dataPoints {
-		response += fmt.Sprintf("%s,%d,%.2f", dp.Key, dp.Timestamp, dp.Value)
-		if i < len(dataPoints)-1 {
-			response += "|"
-		}
-	}
-
-	response += "\n"
-
-	return response
-}
-
-// JsonFormatDataPoints
-func JsonFormatDataPoints(dataPoints []models.DataPoint) string {
-	var response string
-	//use json marshal to format the data points
-	bytes, _ := json.Marshal(dataPoints)
-	response = string(bytes)
-	return response
-}
-
 func GetAllIds() []string {
 	return allIds.Items()
-}
-
-// GetDataFileHandle returns the file handle for a given filename if it exists in the cache
-func GetDataFileHandle(fileName string) (*os.File, bool) {
-	return dataFileHandles.Get(fileName)
 }
 
 // GetKeyCount returns the number of data points for a given key
@@ -600,14 +548,11 @@ func GetAllIdsWithCount() []models.KeyCount {
 
 	var keyCount = []models.KeyCount{}
 	for _, key := range keys {
-		fh := prepareFileHandles(key+".aof", dataFileHandles)
-		if fh == nil {
+		if size, ok := GetDataFileSize(key + ".aof"); ok {
+			keyCount = append(keyCount, models.KeyCount{Key: key, Count: int(size / 16)})
+		} else {
 			keyCount = append(keyCount, models.KeyCount{Key: key, Count: 0})
-			continue
 		}
-		fileStat, _ := fh.Stat()
-		size := int(fileStat.Size() / 16)
-		keyCount = append(keyCount, models.KeyCount{Key: key, Count: size})
 	}
 
 	return keyCount
@@ -642,15 +587,9 @@ func CompactKey(key string) error {
 	os.Remove(tmpDataFile)
 	os.Remove(tmpIdxFile)
 
-	// Close existing handles
-	if dfh, ok := dataFileHandles.Get(key + ".aof"); ok {
-		dfh.Close()
-		dataFileHandles.Delete(key + ".aof")
-	}
-	if ifh, ok := indexFileHandles.Get(key + ".idx"); ok {
-		ifh.Close()
-		indexFileHandles.Delete(key + ".idx")
-	}
+	// Close existing handles (the eviction callback closes when idle)
+	dataFileHandles.Delete(key + ".aof")
+	indexFileHandles.Delete(key + ".idx")
 
 	// Create temp data file and write all points
 	tmpDataFileHandle, err := os.OpenFile(tmpDataFile, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
@@ -708,8 +647,12 @@ func CompactKey(key string) error {
 	}
 
 	// Re-open file handles and update caches
-	prepareFileHandles(key+".aof", dataFileHandles)
-	prepareFileHandles(key+".idx", indexFileHandles)
+	if ref, ok := acquireFileHandle(key+".aof", dataFileHandles); ok {
+		ref.release()
+	}
+	if ref, ok := acquireFileHandle(key+".idx", indexFileHandles); ok {
+		ref.release()
+	}
 
 	// Write Gorilla-compressed version if enabled
 	if utils.CompactionCompression {

@@ -47,31 +47,6 @@ func TestStoreAndReadDataPoints(t *testing.T) {
 	}
 }
 
-func TestFormatDataPoints(t *testing.T) {
-	points := []models.DataPoint{
-		{Key: "test1", Timestamp: 1000, Value: 42.5},
-		{Key: "test1", Timestamp: 2000, Value: 43.5},
-	}
-
-	formatted := FormatDataPoints(points)
-	expected := "test1,1000,42.50|test1,2000,43.50\n"
-	if formatted != expected {
-		t.Errorf("Expected %s, got %s", expected, formatted)
-	}
-}
-
-func TestJsonFormatDataPoints(t *testing.T) {
-	points := []models.DataPoint{
-		{Key: "test1", Timestamp: 1000, Value: 42.5},
-	}
-
-	formatted := JsonFormatDataPoints(points)
-	expected := `[{"key":"test1","timestamp":1000,"value":42.5}]`
-	if formatted != expected {
-		t.Errorf("Expected %s, got %s", formatted, formatted)
-	}
-}
-
 func TestReadDataPointsWithDownsampling(t *testing.T) {
 	cleanup()
 	defer cleanup()
@@ -631,11 +606,11 @@ func TestGetAllIdsWithCount(t *testing.T) {
 	}
 }
 
-func TestGetDataFileHandle(t *testing.T) {
+func TestGetDataFileSize(t *testing.T) {
 	cleanup()
 	defer cleanup()
 
-	testID := "TestGetDataFileHandle"
+	testID := "TestGetDataFileSize"
 	dataPoint := models.DataPoint{
 		Key:       testID,
 		Timestamp: time.Now().Unix(),
@@ -643,18 +618,17 @@ func TestGetDataFileHandle(t *testing.T) {
 	}
 	StoreDataPointBuffer(dataPoint)
 
-	// Test getting existing file handle
-	fh, ok := GetDataFileHandle(testID + ".aof")
+	// Test getting size of an existing (open) file
+	size, ok := GetDataFileSize(testID + ".aof")
 	if !ok {
-		t.Error("Expected file handle for existing key")
+		t.Error("Expected size for existing key")
 	}
-	if fh == nil {
-		t.Error("Expected non-nil file handle")
+	if size != 16 {
+		t.Errorf("Expected size 16 for one record, got %d", size)
 	}
 
-	// Test getting non-existent file handle (use truly unique name)
-	_, ok = GetDataFileHandle("__very_unlikely_nonexistent_file__.aof")
-	if ok {
+	// Test getting size of a non-existent file (truly unique name)
+	if _, ok := GetDataFileSize("__very_unlikely_nonexistent_file__.aof"); ok {
 		t.Error("Expected false for non-existent file")
 	}
 }
@@ -875,10 +849,10 @@ func TestReadFiledDataPointsWithoutIndex(t *testing.T) {
 	os.Remove(utils.DataDir + "/" + key + ".idx")
 
 	// Close and delete index handle from cache so it re-opens
-	if ifh, ok := indexFileHandles.Get(key + ".idx"); ok {
-		ifh.Close()
-		indexFileHandles.Delete(key + ".idx")
+	if ref, ok := refFromLRU(indexFileHandles, key+".idx"); ok {
+		ref.release()
 	}
+	indexFileHandles.Delete(key + ".idx")
 
 	points := ReadDataPoints(key, 0, 2000, 0, "avg")
 	if len(points) != 1 || points[0].Value != 42.0 {

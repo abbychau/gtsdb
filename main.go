@@ -183,6 +183,8 @@ func gracefulShutdown() {
 	utils.Logln("Shutting down — flushing all buffers...")
 	buffer.StopAsyncFlusher()
 	buffer.FlushRemainingDataPoints()
+	// Close all file handles so the data directory can be released on Windows
+	buffer.CloseAllHandles()
 	utils.Logln("Shutdown complete.")
 }
 
@@ -252,16 +254,12 @@ func startBackgroundCompaction(interval time.Duration, thresholdBytes int64) cha
 						return
 					default:
 					}
-					fh, ok := buffer.GetDataFileHandle(id + ".aof")
-					if !ok || fh == nil {
+					size, ok := buffer.GetDataFileSize(id + ".aof")
+					if !ok {
 						continue
 					}
-					stat, err := fh.Stat()
-					if err != nil {
-						continue
-					}
-					if stat.Size() > thresholdBytes {
-						utils.Log("Auto-compacting key %s (size: %d bytes)", id, stat.Size())
+					if size > thresholdBytes {
+						utils.Log("Auto-compacting key %s (size: %d bytes)", id, size)
 						if err := buffer.CompactKey(id); err != nil {
 							utils.Error("Auto-compaction failed for %s: %v", id, err)
 						}

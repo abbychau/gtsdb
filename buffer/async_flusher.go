@@ -75,15 +75,17 @@ func SyncAllHandles() {
 	dirtyKeys.Clear()
 
 	for _, key := range keys {
-		if fh, ok := dataFileHandles.Get(key + ".aof"); ok {
-			if err := fh.Sync(); err != nil {
+		if ref, ok := refFromLRU(dataFileHandles, key+".aof"); ok {
+			if err := ref.file.Sync(); err != nil {
 				utils.Error("async-flusher: error syncing data file %s: %v", key, err)
 			}
+			ref.release()
 		}
-		if fh, ok := indexFileHandles.Get(key + ".idx"); ok {
-			if err := fh.Sync(); err != nil {
+		if ref, ok := refFromLRU(indexFileHandles, key+".idx"); ok {
+			if err := ref.file.Sync(); err != nil {
 				utils.Error("async-flusher: error syncing index file %s: %v", key, err)
 			}
+			ref.release()
 		}
 	}
 }

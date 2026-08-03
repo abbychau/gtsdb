@@ -4,7 +4,6 @@ import (
 	"gtsdb/concurrent"
 	"gtsdb/models"
 	"gtsdb/synchronous"
-	"os"
 	"sync"
 	"sync/atomic"
 )
@@ -15,8 +14,8 @@ var cacheSize = 0
 
 // Limit open file handles with an LRU to avoid exceeding OS limits
 // IMPORTANT: maximum number of open file handles per process on many systems is 1024
-var dataFileHandles *concurrent.LRU[string, *os.File]
-var indexFileHandles *concurrent.LRU[string, *os.File]
+var dataFileHandles *concurrent.LRU[string, *refFile]
+var indexFileHandles *concurrent.LRU[string, *refFile]
 var idToRingBufferMap = concurrent.NewMap[string, *synchronous.RingBuffer[models.DataPoint]]()
 var idToCountMap = concurrent.NewMap[string, *atomic.Int64]()
 var allIds = concurrent.NewSet[string]()

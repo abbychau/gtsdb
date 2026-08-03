@@ -9,11 +9,11 @@ type Node[K comparable, V any] struct {
 }
 
 type LRU[K comparable, V any] struct {
-	capacity int
-	cache    map[K]*Node[K, V]
-	head     *Node[K, V]
-	tail     *Node[K, V]
-	mutex    sync.Mutex
+	capacity  int
+	cache     map[K]*Node[K, V]
+	head      *Node[K, V]
+	tail      *Node[K, V]
+	mutex     sync.Mutex
 	onEvicted func(K, V)
 }
 
@@ -22,11 +22,11 @@ func NewLRU[K comparable, V any](capacity int) *LRU[K, V] {
 		capacity = 1
 	}
 	return &LRU[K, V]{
-		capacity: capacity,
-		cache:    make(map[K]*Node[K, V]),
-		head:     nil,
-		tail:     nil,
-		mutex:    sync.Mutex{},
+		capacity:  capacity,
+		cache:     make(map[K]*Node[K, V]),
+		head:      nil,
+		tail:      nil,
+		mutex:     sync.Mutex{},
 		onEvicted: nil,
 	}
 }
@@ -61,7 +61,11 @@ func (l *LRU[K, V]) Get(key K) (V, bool) {
 func (l *LRU[K, V]) Put(key K, value V) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
+	l.putLocked(key, value)
+}
 
+// putLocked inserts or updates a value, assuming the caller holds the lock.
+func (l *LRU[K, V]) putLocked(key K, value V) {
 	if node, exists := l.cache[key]; exists {
 		node.value = value
 		l.moveToFront(node)
@@ -133,6 +137,67 @@ func (l *LRU[K, V]) Len() int {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	return len(l.cache)
+}
+
+// GetRef returns the value for key and invokes inc (e.g. to bump a reference
+// count) while the lock is held. This makes the increment atomic with respect
+// to eviction: a value that is returned can never be evicted before inc runs.
+func (l *LRU[K, V]) GetRef(key K, inc func(V)) (V, bool) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if node, exists := l.cache[key]; exists {
+		l.moveToFront(node)
+		if inc != nil {
+			inc(node.value)
+		}
+		return node.value, true
+	}
+	var zero V
+	return zero, false
+}
+
+// GetOrCreateRef returns the value for key, creating it via create if absent.
+// create is called while the lock is held; returning false skips insertion.
+// inc is invoked under the lock whenever a value is present after the call,
+// so the caller can bump a reference count without racing eviction.
+func (l *LRU[K, V]) GetOrCreateRef(key K, create func() (V, bool), inc func(V)) (V, bool) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if node, exists := l.cache[key]; exists {
+		l.moveToFront(node)
+		if inc != nil {
+			inc(node.value)
+		}
+		return node.value, true
+	}
+
+	value, ok := create()
+	if !ok {
+		var zero V
+		return zero, false
+	}
+	l.putLocked(key, value)
+	if inc != nil {
+		inc(value)
+	}
+	return value, true
+}
+
+// Clear removes all entries, invoking onEvicted for each.
+func (l *LRU[K, V]) Clear() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	for _, n := range l.cache {
+		if l.onEvicted != nil {
+			l.onEvicted(n.key, n.value)
+		}
+	}
+	l.cache = make(map[K]*Node[K, V])
+	l.head = nil
+	l.tail = nil
 }
 
 // Delete removes a key from the cache (no eviction callback)

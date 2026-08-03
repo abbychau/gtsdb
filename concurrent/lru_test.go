@@ -89,7 +89,7 @@ func TestLRU(t *testing.T) {
 	t.Run("NewLRUWithEvict callback", func(t *testing.T) {
 		evictedKeys := make([]string, 0)
 		evictedValues := make([]int, 0)
-		
+
 		lru := NewLRUWithEvict[string, int](2, func(key string, value int) {
 			evictedKeys = append(evictedKeys, key)
 			evictedValues = append(evictedValues, value)
@@ -259,7 +259,7 @@ func TestLRU(t *testing.T) {
 		lru := NewLRU[string, int](0)
 		lru.Put("a", 1)
 		lru.Put("b", 2) // should evict "a"
-		
+
 		if lru.Len() != 1 {
 			t.Errorf("expected capacity 1 cache to have length 1, got %d", lru.Len())
 		}
@@ -274,9 +274,134 @@ func TestLRU(t *testing.T) {
 		lruWithEvict := NewLRUWithEvict[string, int](-5, nil)
 		lruWithEvict.Put("x", 10)
 		lruWithEvict.Put("y", 20) // should evict "x"
-		
+
 		if lruWithEvict.Len() != 1 {
 			t.Errorf("expected capacity 1 cache to have length 1, got %d", lruWithEvict.Len())
+		}
+	})
+}
+
+func TestLRUGetRef(t *testing.T) {
+	t.Run("increments ref under lock", func(t *testing.T) {
+		lru := NewLRU[string, int](3)
+		lru.Put("a", 1)
+
+		refs := 0
+		v, ok := lru.GetRef("a", func(val int) { refs++ })
+		if !ok || v != 1 {
+			t.Errorf("expected value 1, got %d, exists: %v", v, ok)
+		}
+		if refs != 1 {
+			t.Errorf("expected inc to be called once, got %d", refs)
+		}
+	})
+
+	t.Run("no inc on miss", func(t *testing.T) {
+		lru := NewLRU[string, int](3)
+		refs := 0
+		if _, ok := lru.GetRef("missing", func(val int) { refs++ }); ok {
+			t.Error("expected miss")
+		}
+		if refs != 0 {
+			t.Errorf("expected no inc on miss, got %d", refs)
+		}
+	})
+}
+
+func TestLRUGetOrCreateRef(t *testing.T) {
+	t.Run("creates missing key", func(t *testing.T) {
+		lru := NewLRU[string, int](3)
+
+		creates := 0
+		v, ok := lru.GetOrCreateRef("a", func() (int, bool) {
+			creates++
+			return 42, true
+		}, func(val int) {})
+		if !ok || v != 42 {
+			t.Errorf("expected 42, got %d, exists: %v", v, ok)
+		}
+		if creates != 1 {
+			t.Errorf("expected create called once, got %d", creates)
+		}
+		if lru.Len() != 1 {
+			t.Errorf("expected length 1, got %d", lru.Len())
+		}
+	})
+
+	t.Run("create failure not inserted", func(t *testing.T) {
+		lru := NewLRU[string, int](3)
+		if _, ok := lru.GetOrCreateRef("a", func() (int, bool) {
+			return 0, false
+		}, func(val int) {}); ok {
+			t.Error("expected miss when create fails")
+		}
+		if lru.Len() != 0 {
+			t.Errorf("expected length 0, got %d", lru.Len())
+		}
+	})
+
+	t.Run("existing key not recreated", func(t *testing.T) {
+		lru := NewLRU[string, int](3)
+		lru.Put("a", 1)
+
+		creates := 0
+		v, ok := lru.GetOrCreateRef("a", func() (int, bool) {
+			creates++
+			return 99, true
+		}, func(val int) {})
+		if !ok || v != 1 {
+			t.Errorf("expected existing 1, got %d, exists: %v", v, ok)
+		}
+		if creates != 0 {
+			t.Errorf("expected no create for existing key, got %d", creates)
+		}
+	})
+
+	t.Run("evicts when over capacity", func(t *testing.T) {
+		lru := NewLRU[string, int](2)
+		lru.Put("a", 1)
+		lru.Put("b", 2)
+
+		if _, ok := lru.GetOrCreateRef("c", func() (int, bool) {
+			return 3, true
+		}, func(val int) {}); !ok {
+			t.Error("expected create of c to succeed")
+		}
+		if _, ok := lru.Get("a"); ok {
+			t.Error("expected a to be evicted")
+		}
+	})
+}
+
+func TestLRUClear(t *testing.T) {
+	t.Run("invokes onEvicted for each entry", func(t *testing.T) {
+		evicted := []string{}
+		lru := NewLRUWithEvict[string, int](5, func(key string, val int) {
+			evicted = append(evicted, key)
+		})
+		lru.Put("a", 1)
+		lru.Put("b", 2)
+		lru.Put("c", 3)
+
+		lru.Clear()
+		if len(evicted) != 3 {
+			t.Errorf("expected 3 evictions, got %d", len(evicted))
+		}
+		if lru.Len() != 0 {
+			t.Errorf("expected length 0 after clear, got %d", lru.Len())
+		}
+		if _, ok := lru.Get("a"); ok {
+			t.Error("expected a to be gone after clear")
+		}
+	})
+
+	t.Run("cache reusable after clear", func(t *testing.T) {
+		lru := NewLRU[string, int](3)
+		lru.Put("a", 1)
+		lru.Clear()
+		lru.Put("b", 2)
+		if v, ok := lru.Get("b"); !ok || v != 2 {
+			t.Errorf("expected b=2 after reuse, got %d, exists: %v", v, ok)
 		}
 	})
 }
