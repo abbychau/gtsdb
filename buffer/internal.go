@@ -164,7 +164,9 @@ func storeDataPoints(dataPointId string, dataPoints []models.DataPoint) {
 		}
 
 		if utils.SyncMode == "sync" {
-			dataFile.Sync()
+			if err := dataFile.Sync(); err != nil {
+				utils.Error("Failed to sync data file for %s: %v", dataPointId, err)
+			}
 		} else {
 			dirtyKeys.Add(dataPointId)
 		}

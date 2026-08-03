@@ -88,7 +88,9 @@ func HandleTcpConnection(conn net.Conn, fanoutManager *fanout.Fanout) {
 	for scanner.Scan() {
 		var op Operation
 		if err := json.Unmarshal(scanner.Bytes(), &op); err != nil {
-			connWriteJSON(conn, Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()})
+			if err := connWriteJSON(conn, Response{Success: false, Message: "Invalid JSON format: " + scanner.Text()}); err != nil {
+				utils.Log("Client %d failed to send error response", id)
+			}
 			continue
 		}
 

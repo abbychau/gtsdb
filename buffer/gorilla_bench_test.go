@@ -18,7 +18,9 @@ func BenchmarkGorillaEncode(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		EncodeBlock(points)
+		if _, err := EncodeBlock(points); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -35,7 +37,9 @@ func BenchmarkGorillaDecode(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		DecodeBlock(compressed)
+		if _, err := DecodeBlock(compressed); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -51,7 +55,9 @@ func BenchmarkGorillaEncodeVariable(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		EncodeBlock(points)
+		if _, err := EncodeBlock(points); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -68,7 +74,9 @@ func BenchmarkGorillaDecodeVariable(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		DecodeBlock(compressed)
+		if _, err := DecodeBlock(compressed); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -121,7 +129,9 @@ func BenchmarkWriteRecordDisk(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		writeRecord(f, timestamp, value)
+		if err := writeRecord(f, timestamp, value); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -142,8 +152,12 @@ func BenchmarkGorillaFullCycle(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		compressed, _ := EncodeBlock(points)
-		f.Write(compressed)
-		f.Seek(0, 0)
+		if _, err := f.Write(compressed); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -164,8 +178,12 @@ func BenchmarkRawFullCycle(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		for _, p := range points {
-			writeRecord(f, p.Timestamp, p.Value)
+			if err := writeRecord(f, p.Timestamp, p.Value); err != nil {
+				b.Fatal(err)
+			}
 		}
-		f.Seek(0, 0)
+		if _, err := f.Seek(0, 0); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
