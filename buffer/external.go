@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 func InitIDSet() {
@@ -634,12 +635,13 @@ func CompactKey(key string) error {
 
 	// Atomically rename: idx first (smaller), then data.
 	// If idx rename succeeds but data rename fails, rollback idx.
-	if err := os.Rename(tmpIdxFile, realIdxFile); err != nil {
+	// Retries handle transient Windows file locks (AV scanning etc.).
+	if err := renameWithRetry(tmpIdxFile, realIdxFile); err != nil {
 		os.Remove(tmpDataFile)
 		os.Remove(tmpIdxFile)
 		return fmt.Errorf("failed to rename index file: %w", err)
 	}
-	if err := os.Rename(tmpDataFile, realDataFile); err != nil {
+	if err := renameWithRetry(tmpDataFile, realDataFile); err != nil {
 		// Rollback: restore old idx from what was just renamed
 		_ = os.Rename(realIdxFile, tmpIdxFile)
 		os.Remove(tmpDataFile)
@@ -677,4 +679,22 @@ func CompactKey(key string) error {
 
 	utils.Log("Compacted key %s: %d points, %d records", key, len(dataPoints), count)
 	return nil
+}
+
+// renameWithRetry renames a file, retrying briefly on transient failures.
+// On Windows, a rename can fail with "Access is denied" right after the
+// destination was closed (e.g. antivirus scanning); a short retry avoids
+// spurious compaction failures.
+func renameWithRetry(oldPath, newPath string) error {
+	const attempts = 5
+	const delay = 20 * time.Millisecond
+	var err error
+	for i := 0; i < attempts; i++ {
+		err = os.Rename(oldPath, newPath)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(delay)
+	}
+	return err
 }
