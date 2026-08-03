@@ -12,11 +12,19 @@ import (
 
 const gorillaBlockSize = indexInterval // 5000 points per block
 
+// maxCompressedBlockSize bounds the memory allocated from a block-length
+// prefix read from disk. Worst case a 5000-point block needs ~14.2 bytes per
+// point (36 bits timestamp + 77 bits value) plus header, so anything larger
+// is corrupt. Prevents a bogus prefix from causing a multi-GB allocation.
+const maxCompressedBlockSize = gorillaBlockSize*20 + 64
+
 // writeCompressedWAL writes a Gorilla-compressed version of all data points for a key.
-// Output: key.aof.gor (compressed blocks) + key.idx (same format, byte offsets into .gor)
+// Output: key.aof.gor (compressed blocks) + key.aof.gor.idx (same format,
+// byte offsets into key.aof.gor). The index is a SEPARATE file from key.idx,
+// whose offsets point into the raw .aof and would be meaningless here.
 func writeCompressedWAL(key string, dataPoints []models.DataPoint) error {
 	gorFile := utils.DataDir + "/" + key + ".aof.gor.tmp"
-	idxFile := utils.DataDir + "/" + key + ".idx.tmp"
+	idxFile := utils.DataDir + "/" + key + ".aof.gor.idx.tmp"
 
 	os.Remove(gorFile)
 	os.Remove(idxFile)
@@ -72,12 +80,20 @@ func writeCompressedWAL(key string, dataPoints []models.DataPoint) error {
 	gorHandle.Close()
 	idxHandle.Close()
 
-	// Atomic rename
+	// Atomic rename: compressed data first, then index. If the index rename
+	// fails, roll back by removing the compressed file (a .gor without its
+	// index is useless and would break reads).
 	realGor := utils.DataDir + "/" + key + ".aof.gor"
+	realIdx := utils.DataDir + "/" + key + ".aof.gor.idx"
 	if err := os.Rename(gorFile, realGor); err != nil {
 		os.Remove(gorFile)
 		os.Remove(idxFile)
 		return fmt.Errorf("failed to rename compressed file: %w", err)
+	}
+	if err := os.Rename(idxFile, realIdx); err != nil {
+		os.Remove(realGor)
+		os.Remove(idxFile)
+		return fmt.Errorf("failed to rename compressed index: %w", err)
 	}
 
 	utils.Log("Compressed WAL for %s: %d points → %d bytes (%d blocks)",
@@ -93,8 +109,9 @@ func readCompressedDataPoints(id string, startTime, endTime int64) ([]models.Dat
 		return nil, nil // no compressed file
 	}
 
-	// Use the index file to find the right block
-	idxFile := utils.DataDir + "/" + id + ".idx"
+	// Use the compressed index file to find the right block. This is a separate
+	// file from key.idx (which holds offsets into the raw .aof).
+	idxFile := utils.DataDir + "/" + id + ".aof.gor.idx"
 	idxHandle, err := os.Open(idxFile)
 	if err != nil {
 		return nil, err
@@ -147,6 +164,9 @@ func readCompressedDataPoints(id string, startTime, endTime int64) ([]models.Dat
 			return nil, err
 		}
 		blockLen := int(binary.LittleEndian.Uint32(lenBuf[:]))
+		if blockLen <= 0 || blockLen > maxCompressedBlockSize {
+			return nil, fmt.Errorf("invalid compressed block length: %d", blockLen)
+		}
 
 		blockData := make([]byte, blockLen)
 		if _, err := io.ReadFull(gorReader, blockData); err != nil {

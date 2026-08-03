@@ -178,7 +178,7 @@ func TestReadCompressedMissingIndex(t *testing.T) {
 	defer cleanup()
 
 	key := "test_no_idx"
-	// Create gor file without corresponding idx file
+	// Create gor file without corresponding key.aof.gor.idx file
 	gorPath := utils.DataDir + "/" + key + ".aof.gor"
 	if err := os.WriteFile(gorPath, []byte("dummy"), 0644); err != nil {
 		t.Fatal(err)
@@ -195,8 +195,8 @@ func TestReadCompressedCorruptGorData(t *testing.T) {
 	defer cleanup()
 
 	key := "test_corrupt_gor"
-	// Write a valid index and a corrupt gor file (valid block header but bad data)
-	idxPath := utils.DataDir + "/" + key + ".idx"
+	// Write a valid key.aof.gor.idx and a corrupt gor file (valid block header but bad data)
+	idxPath := utils.DataDir + "/" + key + ".aof.gor.idx"
 	gorPath := utils.DataDir + "/" + key + ".aof.gor"
 
 	// Write index entry: ts=0, offset=0
@@ -226,7 +226,7 @@ func TestReadCompressedCorruptIndex(t *testing.T) {
 
 	key := "test_corrupt_idx"
 	gorPath := utils.DataDir + "/" + key + ".aof.gor"
-	idxPath := utils.DataDir + "/" + key + ".idx"
+	idxPath := utils.DataDir + "/" + key + ".aof.gor.idx"
 
 	// Write a valid gor file with one small block
 	orgComp := utils.CompactionCompression
@@ -256,4 +256,82 @@ func TestReadCompressedCorruptIndex(t *testing.T) {
 	}
 	_ = pts
 	_ = gorPath // suppress unused warning
+}
+
+// TestReadCompressedMultiBlock is a regression test for the compressed WAL
+// index bug: the compressed index (key.aof.gor.idx) used to be read from the
+// raw-AOF index (key.idx), whose offsets point into the .aof instead of the
+// .gor layout. Reads starting in block 2+ then resumed at the wrong offset,
+// returning empty results or garbage.
+func TestReadCompressedMultiBlock(t *testing.T) {
+	cleanup()
+	defer cleanup()
+
+	key := "test_gorilla_multiblock"
+	originalCompression := utils.CompactionCompression
+	utils.CompactionCompression = true
+	defer func() { utils.CompactionCompression = originalCompression }()
+
+	// Three full blocks + partial fourth: 3*5000 + 123 points
+	const extra = 123
+	total := gorillaBlockSize*3 + extra
+	for i := 0; i < total; i++ {
+		StoreDataPointBuffer(models.DataPoint{
+			Key: key, Timestamp: int64(1000 + i), Value: float64(i) * 1.5,
+		})
+	}
+
+	if err := CompactKey(key); err != nil {
+		t.Fatalf("CompactKey failed: %v", err)
+	}
+
+	// No orphaned temp files should remain
+	if _, err := os.Stat(utils.DataDir + "/" + key + ".aof.gor.tmp"); !os.IsNotExist(err) {
+		t.Error("Expected no leftover .aof.gor.tmp file")
+	}
+	if _, err := os.Stat(utils.DataDir + "/" + key + ".aof.gor.idx.tmp"); !os.IsNotExist(err) {
+		t.Error("Expected no leftover .aof.gor.idx.tmp file")
+	}
+
+	// Ranges inside block 0 (start), block 1, block 2 (start) and the last block
+	cases := []struct {
+		name         string
+		from, to     int64
+		expectPoints int
+	}{
+		{"block0 start", 1000, 2000, 1001},
+		{"block1 middle", 6000, 7000, 1001},
+		{"block2 start", 11000, 12000, 1001},
+		{"block2 end to block3 start", 14900, 15100, 201},
+		{"last partial block", 1000 + int64(total-extra/2), 1000 + int64(total-1), extra / 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pts, err := readCompressedDataPoints(key, tc.from, tc.to)
+			if err != nil {
+				t.Fatalf("readCompressedDataPoints failed: %v", err)
+			}
+			if len(pts) != tc.expectPoints {
+				t.Errorf("Expected %d points in [%d,%d], got %d", tc.expectPoints, tc.from, tc.to, len(pts))
+			}
+		})
+	}
+
+	// Public API path must also return data for a late range (this used to fall
+	// back to the raw AOF, which masked the bug).
+	pts, err := readCompressedDataPoints(key, 11000, 12000)
+	if err != nil {
+		t.Fatalf("readCompressedDataPoints (block 2) failed: %v", err)
+	}
+	if len(pts) != 1001 {
+		t.Errorf("Expected 1001 points from block 2, got %d", len(pts))
+	}
+	if pts[0].Timestamp != 11000 || pts[0].Value != 10000*1.5 {
+		t.Errorf("First point mismatch: ts=%d val=%f", pts[0].Timestamp, pts[0].Value)
+	}
+
+	public := ReadDataPoints(key, 11000, 12000, 0, "")
+	if len(public) != 1001 {
+		t.Errorf("ReadDataPoints: expected 1001 points from block 2, got %d", len(public))
+	}
 }
