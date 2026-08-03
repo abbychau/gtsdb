@@ -247,7 +247,7 @@ See [gtsdb-benchmark](https://github.com/abbychau/gtsdb-benchmark) for GTSDB vs 
 | [TCP Protocol](docs/tcp-protocol.md) | TCP interface protocol and examples |
 | [Configuration Reference](docs/configuration.md) | All config file options |
 | [Operations Guide](docs/operations.md) | Complete operations reference |
-| [Cloud User Guide](GTSDB_CLOUD_GUIDE.md) | Multi-user authentication and tenancy |
+| [Multi-User Guide](docs/multi-user.md) | Authentication, namespaces, and quotas |
 
 ## Development
 
