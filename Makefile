@@ -23,7 +23,7 @@ build-desktop:
 	go build -ldflags="-s -w" -trimpath -o "$(HOME)/Desktop/gtsdb.exe" .
 
 build-bench:
-	go build -ldflags="-s -w" -trimpath -o "$(HOME)/Desktop/gtsdb_bench.exe" ./benchmark-repo
+	go build -ldflags="-s -w" -trimpath -o "$(HOME)/Desktop/gtsdb_bench.exe" ./benchmark
 
 deploy:
 	git pull
